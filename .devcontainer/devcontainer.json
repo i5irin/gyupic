@@ -6,7 +6,7 @@
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bullseye",
   "customizations": {
     "vscode": {
-      "extensions": ["EditorConfig.EditorConfig"],
+      "extensions": ["EditorConfig.EditorConfig", "dbaeumer.vscode-eslint"],
     },
   },
   "appPort": ["8080:8080"],
