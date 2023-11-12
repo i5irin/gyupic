@@ -13,5 +13,5 @@ module.exports = {
     es2021: true,
     jest: true,
   },
-  ignorePatterns: ['!.prettierrc.cjs'],
+  ignorePatterns: ['!.stylelintrc.cjs', '!.prettierrc.cjs'],
 };
