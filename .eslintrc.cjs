@@ -14,4 +14,17 @@ module.exports = {
     jest: true,
   },
   ignorePatterns: ['!.stylelintrc.cjs', '!.prettierrc.cjs'],
+  overrides: [
+    {
+      files: ['**/vite.config.js'],
+      rules: {
+        'import/no-extraneous-dependencies': [
+          'error',
+          {
+            devDependencies: ['**/vite.config.js'],
+          },
+        ],
+      },
+    },
+  ],
 };

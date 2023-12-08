@@ -18,6 +18,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "views/*": ["./dist/views/*", "./src/views/*"],
+    },
   },
   "include": ["src"],
 }

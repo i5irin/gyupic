@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host --port 8080",
-    "build": "tsc && vite build",
+    "dev": "npm run type:css && vite --host --port 8080",
+    "build": "npm run type:css && tsc && vite build",
     "preview": "vite preview",
+    "type:css": "tcm -p '**/*.module.css' src -c -o dist",
     "eslint": "eslint --ext .js,.ts,.cjs --ignore-pattern 'dist/**/*' .",
     "eslint:fix": "npm run eslint -- --fix",
     "stylelint": "stylelint 'src/**/*.css'",
