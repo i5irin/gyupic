@@ -28,7 +28,8 @@
     "stylelint-config-standard": "^34.0.0",
     "typed-css-modules": "^0.8.1",
     "typescript": "^5.0.2",
-    "vite": "^4.4.5"
+    "vite": "^4.4.5",
+    "vite-plugin-sass-dts": "^1.3.16"
   },
   "dependencies": {
     "eventemitter3": "^5.0.1"
