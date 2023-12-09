@@ -7,6 +7,18 @@
     <title>GyuPic!</title>
   </head>
   <body>
+    <div id="app">
+      <form>
+        <div class="js-files-input">
+          <label for="files">Choose pictures</label>
+          <input type="file" id="files" accept="image/png" multiple />
+        </div>
+        <button type="button" class="js-files-reset-button">Reset</button>
+        <button type="button" class="js-files-convert-button">Convert</button>
+      </form>
+      <div class="js-load-image-list load-image-list"></div>
+      <div class="js-converted-image-list"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

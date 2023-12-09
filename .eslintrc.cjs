@@ -14,6 +14,9 @@ module.exports = {
     jest: true,
   },
   ignorePatterns: ['!.stylelintrc.cjs', '!.prettierrc.cjs'],
+  rules: {
+    '@typescript-eslint/member-ordering': 'error',
+  },
   overrides: [
     {
       files: ['**/vite.config.js'],
