@@ -6,4 +6,6 @@
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
   "typescript.tsdk": "node_modules/typescript/lib",
+  // Use the path alias of tsconfig.json to import
+  "javascript.preferences.importModuleSpecifier": "non-relative",
 }
