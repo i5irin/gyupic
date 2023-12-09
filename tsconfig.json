@@ -18,9 +18,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+
+    /* Alias for moduled CSS type definition */
     "paths": {
       "views/*": ["./dist/views/*", "./src/views/*"],
     },
   },
-  "include": ["src"],
+  "include": ["src", "dist/views/**/*.module.css.d.ts"],
 }
