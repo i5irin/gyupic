@@ -5,15 +5,23 @@ module.exports = {
     tsconfigRootDir: __dirname,
     sourceType: 'module',
   },
+  settings: {
+    react: { version: 'detect' },
+  },
   plugins: ['@typescript-eslint/eslint-plugin'],
-  extends: ['airbnb-base', 'airbnb-typescript/base', 'prettier'],
+  extends: ['airbnb', 'airbnb/hooks', 'airbnb-typescript', 'prettier'],
   root: true,
   env: {
     browser: true,
     es2021: true,
     jest: true,
   },
-  ignorePatterns: ['!.stylelintrc.cjs', '!.prettierrc.cjs'],
+  ignorePatterns: [
+    'dist/**/*',
+    'node_modules/**/*',
+    '!.stylelintrc.cjs',
+    '!.prettierrc.cjs',
+  ],
   rules: {
     '@typescript-eslint/member-ordering': 'error',
   },
