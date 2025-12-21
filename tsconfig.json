@@ -21,8 +21,8 @@
 
     /* Alias for moduled CSS type definition */
     "paths": {
-      "views/*": ["./dist/views/*", "./src/views/*"],
+      "views/*": ["./src/views/*"],
     },
   },
-  "include": ["src", "dist/views/**/*.module.css.d.ts"],
+  "include": ["src"],
 }

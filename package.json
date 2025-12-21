@@ -7,7 +7,7 @@
     "dev": "npm run type:css && vite --host --port 8080",
     "build": "npm run type:css && tsc && vite build",
     "preview": "vite preview",
-    "type:css": "tcm -p '**/*.module.css' src -c -o dist",
+    "type:css": "tcm -p '**/*.module.css' src -c",
     "eslint": "eslint --ext .js,.ts,.cjs --ignore-pattern 'dist/**/*' .",
     "eslint:fix": "npm run eslint -- --fix",
     "stylelint": "stylelint 'src/**/*.css'",
