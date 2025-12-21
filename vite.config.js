@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite';
-import sassDts from 'vite-plugin-sass-dts';
 import path from 'path';
 
 export default defineConfig({
@@ -13,11 +12,4 @@ export default defineConfig({
       views: path.join(__dirname, 'src/views'),
     },
   },
-  plugins: [
-    sassDts({
-      enabledMode: ['development', 'production'],
-      sourceDir: path.resolve(__dirname, 'src'),
-      outputDir: path.resolve(__dirname, 'dist'),
-    }),
-  ],
 });
