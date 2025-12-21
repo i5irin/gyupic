@@ -1,11 +1,13 @@
 {
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit",
-    "source.fixAll.stylelint": "explicit"
+    "source.fixAll.stylelint": "explicit",
   },
   "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
   "typescript.tsdk": "node_modules/typescript/lib",
   // Use the path alias of tsconfig.json to import
   "javascript.preferences.importModuleSpecifier": "non-relative",
+  "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+  "editor.inlineSuggest.enabled": true,
 }
