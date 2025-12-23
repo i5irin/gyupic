@@ -43,6 +43,10 @@ export default abstract class ImageFile {
     return this.objectURL;
   }
 
+  public asFile(): File {
+    return this.file;
+  }
+
   public revokeObjectURL() {
     if (this.objectURL === null) {
       throw new Error();

@@ -18,7 +18,7 @@ export default class ImageFileService {
     quality: number,
   ): Promise<JpegFile> {
     const blob = await imageFile.extractBlob(ImageMimeTypes.Jpeg, quality);
-    const file = new File([blob], imageFile.name, {
+    const file = new File([blob], `${imageFile.name}.jpg`, {
       type: ImageMimeTypes.Jpeg,
     });
     return JpegFile.createFromFile(file);
