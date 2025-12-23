@@ -1,4 +1,4 @@
-.root {
+.load-image-list-item {
   width: 300px;
   height: 120px;
 }
@@ -7,4 +7,8 @@
   object-fit: cover;
   width: 300px;
   height: 300px;
+}
+
+.load-image-list {
+  height: 50%;
 }

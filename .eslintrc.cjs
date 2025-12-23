@@ -24,6 +24,9 @@ module.exports = {
   ],
   rules: {
     '@typescript-eslint/member-ordering': 'error',
+    // React 17+ (new JSX transform) premise
+    'react/react-in-jsx-scope': 'off',
+    'react/jsx-uses-react': 'off',
   },
   overrides: [
     {
