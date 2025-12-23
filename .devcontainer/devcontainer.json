@@ -11,6 +11,8 @@
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
         "stylelint.vscode-stylelint",
+        "GitHub.copilot",
+        "GitHub.copilot-chat"
       ],
     },
   },

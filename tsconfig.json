@@ -13,11 +13,18 @@
     "isolatedModules": true,
     "noEmit": true,
 
+    "jsx": "react-jsx",
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+
+    /* Alias for moduled CSS type definition */
+    "paths": {
+      "views/*": ["./src/views/*"],
+    },
   },
   "include": ["src"],
 }
