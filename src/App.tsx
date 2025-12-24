@@ -1,10 +1,11 @@
-import { useCallback, useRef, useReducer } from 'react';
+import { useCallback, useRef, useReducer, useState } from 'react';
 import ImageFileService from './services/image-file-service';
 import FilePicker from './components/FilePicker';
-import LoadedList from './components/LoadedList';
-import ConvertedList from './components/ConvertedList';
+import ItemsGrid from './components/ItemsGrid';
+import Toast from './components/Toast';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
+import { selectGridItems } from './state/selectors';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -26,6 +27,23 @@ export default function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
+
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMessage(null);
+      toastTimerRef.current = null;
+    }, 1800);
+  }, []);
+
   const onReset = useCallback(() => {
     // Revoke all ObjectURLs we own (src/out previews).
     state.items.forEach((it) => {
@@ -38,30 +56,40 @@ export default function App() {
     if (inputRef.current) {
       inputRef.current.value = '';
     }
+
+    setToastMessage(null);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    }
   }, [state.items]);
 
-  const onChangeFiles = useCallback(async (files: File[]) => {
-    const imageFiles = await Promise.all(
-      files.map(async (file) => {
-        const imageFile = await ImageFileService.load(file);
-        return { file, imageFile };
-      }),
-    );
+  const onChangeFiles = useCallback(
+    async (files: File[]) => {
+      const imageFiles = await Promise.all(
+        files.map(async (file) => {
+          const imageFile = await ImageFileService.load(file);
+          return { file, imageFile };
+        }),
+      );
 
-    const newItems: JobItem[] = imageFiles.map(({ file, imageFile }) => ({
-      id: createId(),
-      createdAt: Date.now(),
-      isNew: true,
-      status: 'queued',
-      src: {
-        file,
-        imageFile,
-        previewUrl: URL.createObjectURL(file),
-      },
-    }));
+      const newItems: JobItem[] = imageFiles.map(({ file, imageFile }) => ({
+        id: createId(),
+        createdAt: Date.now(),
+        isNew: true,
+        status: 'queued',
+        src: {
+          file,
+          imageFile,
+          previewUrl: URL.createObjectURL(file),
+        },
+      }));
 
-    dispatch({ type: 'ADD_ITEMS', items: newItems });
-  }, []);
+      dispatch({ type: 'ADD_ITEMS', items: newItems });
+      showToast(`Added (+${newItems.length})`);
+    },
+    [showToast],
+  );
 
   // Keep manual conversion by button (to be replaced with automatic conversion by queue later)
   const onConvert = useCallback(() => {
@@ -109,14 +137,8 @@ export default function App() {
     run();
   }, [state.items, state.settings.jpegQuality]);
 
-  const loadedListItems = state.items.map((it) => ({
-    id: it.id,
-    url: it.src.previewUrl,
-  }));
-
-  const convertedListItems = state.items
-    .filter((it) => it.status === 'done')
-    .flatMap((it) => (it.out ? [{ id: it.id, url: it.out.previewUrl }] : []));
+  const gridItems = selectGridItems(state.items);
+  const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
 
   return (
     <div>
@@ -131,10 +153,9 @@ export default function App() {
         </button>
       </form>
 
-      {/* Loaded list (current behavior: new loads append to the list instead of replacing it.) */}
-      <LoadedList items={loadedListItems} />
-      {/* Converted list (current behavior: new converts append to the list instead of replacing it.) */}
-      <ConvertedList items={convertedListItems} />
+      <ItemsGrid items={gridItems} scrollToId={scrollToId} />
+
+      {toastMessage && <Toast message={toastMessage} />}
     </div>
   );
 }
