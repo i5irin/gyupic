@@ -110,6 +110,10 @@ export default function App() {
   }, [state.items, state.settings.jpegQuality]);
 
   const gridItems = selectGridItems(state.items);
+  const scrollToId =
+    state.lastAddedIds.length > 0
+      ? state.lastAddedIds[state.lastAddedIds.length - 1]
+      : null;
 
   return (
     <div>
@@ -124,7 +128,7 @@ export default function App() {
         </button>
       </form>
 
-      <ItemsGrid items={gridItems} />
+      <ItemsGrid items={gridItems} scrollToId={scrollToId} />
     </div>
   );
 }

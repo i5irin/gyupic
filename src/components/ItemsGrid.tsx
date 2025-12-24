@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import styles from './ItemsGrid.module.css';
 import type { GridItem } from '../state/selectors';
 
@@ -6,6 +7,7 @@ type Props = {
   onRetry?: (id: string) => void;
   onDownload?: (id: string) => void;
   onCancel?: (id: string) => void;
+  scrollToId?: string | null;
 };
 
 function statusLabel(status: GridItem['status']): string {
@@ -45,11 +47,29 @@ export default function ItemsGrid({
   onRetry,
   onDownload,
   onCancel,
+  scrollToId,
 }: Props) {
+  const targetElRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!scrollToId) {
+      return;
+    }
+    const el = targetElRef.current;
+    if (!el) {
+      return;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [scrollToId]);
+
   return (
     <div className={styles.grid}>
       {items.map((it) => (
-        <div key={it.id} className={styles.tile}>
+        <div
+          key={it.id}
+          className={styles.tile}
+          ref={it.id === scrollToId ? targetElRef : undefined}
+        >
           <div className={styles.badges}>
             <span className={`${styles.badge} ${statusBadgeClass(it.status)}`}>
               {statusLabel(it.status)}
@@ -123,4 +143,5 @@ ItemsGrid.defaultProps = {
   onRetry: undefined,
   onDownload: undefined,
   onCancel: undefined,
+  scrollToId: null,
 };
