@@ -7,7 +7,7 @@ type Props = {
   onRetry?: (id: string) => void;
   onDownload?: (id: string) => void;
   onCancel?: (id: string) => void;
-  scrollToId?: string | null;
+  scrollToId?: string;
 };
 
 function statusLabel(status: GridItem['status']): string {
@@ -143,5 +143,5 @@ ItemsGrid.defaultProps = {
   onRetry: undefined,
   onDownload: undefined,
   onCancel: undefined,
-  scrollToId: null,
+  scrollToId: undefined,
 };

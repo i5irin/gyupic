@@ -138,10 +138,7 @@ export default function App() {
   }, [state.items, state.settings.jpegQuality]);
 
   const gridItems = selectGridItems(state.items);
-  const scrollToId =
-    state.lastAddedIds.length > 0
-      ? state.lastAddedIds[state.lastAddedIds.length - 1]
-      : null;
+  const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
 
   return (
     <div>

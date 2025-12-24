@@ -88,7 +88,7 @@ export default function appReducer(
           status: 'queued',
           out: undefined,
           error: undefined,
-          isNew: true,
+          isNew: false,
         })),
       };
     }
