@@ -1,8 +1,6 @@
 import { useCallback, useRef, useReducer } from 'react';
 import ImageFileService from './services/image-file-service';
 import FilePicker from './components/FilePicker';
-import LoadedList from './components/LoadedList';
-import ConvertedList from './components/ConvertedList';
 import ItemsGrid from './components/ItemsGrid';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
@@ -111,15 +109,6 @@ export default function App() {
     run();
   }, [state.items, state.settings.jpegQuality]);
 
-  const loadedListItems = state.items.map((it) => ({
-    id: it.id,
-    url: it.src.previewUrl,
-  }));
-
-  const convertedListItems = state.items
-    .filter((it) => it.status === 'done')
-    .flatMap((it) => (it.out ? [{ id: it.id, url: it.out.previewUrl }] : []));
-
   const gridItems = selectGridItems(state.items);
 
   return (
@@ -134,11 +123,6 @@ export default function App() {
           Convert
         </button>
       </form>
-
-      {/* Loaded list (current behavior: new loads append to the list instead of replacing it.) */}
-      <LoadedList items={loadedListItems} />
-      {/* Converted list (current behavior: new converts append to the list instead of replacing it.) */}
-      <ConvertedList items={convertedListItems} />
 
       <ItemsGrid items={gridItems} />
     </div>
