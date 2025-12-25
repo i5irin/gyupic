@@ -101,6 +101,17 @@ export default function App() {
     [showToast],
   );
 
+  const onRetry = useCallback(
+    (id: string) => {
+      dispatch({ type: 'RETRY_ITEM', id });
+    },
+    [dispatch],
+  );
+
+  const onDownload = useCallback(() => {
+    // no-op
+  }, []);
+
   // Automatic conversion queue (single concurrency).
   // When there is no active processing item, automatically start the next queued item.
   useEffect(() => {
@@ -217,7 +228,12 @@ export default function App() {
         </button>
       </form>
 
-      <ItemsGrid items={gridItems} scrollToId={scrollToId} />
+      <ItemsGrid
+        items={gridItems}
+        scrollToId={scrollToId}
+        onRetry={onRetry}
+        onDownload={onDownload}
+      />
 
       {toastMessage && <Toast message={toastMessage} />}
     </div>
