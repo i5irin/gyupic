@@ -1,4 +1,4 @@
-import { useCallback, useRef, useReducer, useState } from 'react';
+import { useCallback, useEffect, useRef, useReducer, useState } from 'react';
 import ImageFileService from './services/image-file-service';
 import FilePicker from './components/FilePicker';
 import ItemsGrid from './components/ItemsGrid';
@@ -26,6 +26,16 @@ function safeRevokeObjectURL(url: string | undefined) {
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Keep a ref to the latest state so async conversions can validate generation.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Local lock to avoid starting multiple conversions due to effect re-runs
+  // (e.g. React StrictMode, rapid re-renders).
+  const inFlightRef = useRef<string | null>(null);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -91,51 +101,108 @@ export default function App() {
     [showToast],
   );
 
-  // Keep manual conversion by button (to be replaced with automatic conversion by queue later)
-  const onConvert = useCallback(() => {
+  // Automatic conversion queue (single concurrency).
+  // When there is no active processing item, automatically start the next queued item.
+  useEffect(() => {
+    const latest = stateRef.current;
+
+    if (inFlightRef.current !== null) {
+      return;
+    }
+    if (latest.activeItemId !== null) {
+      return;
+    }
+
+    const next = latest.items.find((it) => it.status === 'queued');
+    if (!next) {
+      return;
+    }
+
+    const startedRunId = latest.runId;
+    const startedSettingsRev = latest.settingsRev;
+    const startedQuality = latest.settings.jpegQuality;
+
+    inFlightRef.current = next.id;
+    dispatch({ type: 'START_ITEM', id: next.id });
+
     const run = async () => {
-      const targets = state.items.filter((it) => it.status === 'queued');
+      try {
+        const converted = await ImageFileService.convertToJpeg(
+          next.src.imageFile,
+          startedQuality,
+        );
 
-      await Promise.all(
-        targets.map(async (item) => {
-          dispatch({ type: 'START_ITEM', id: item.id });
-          try {
-            const converted = await ImageFileService.convertToJpeg(
-              item.src.imageFile,
-              state.settings.jpegQuality,
-            );
+        const outFile = converted.asFile();
+        const sizeBefore = next.src.file.size;
+        const sizeAfter = outFile.size;
+        const reductionRatio =
+          sizeBefore > 0
+            ? Math.max(0, (sizeBefore - sizeAfter) / sizeBefore)
+            : 0;
 
-            const outFile = converted.asFile();
-            const previewUrl = URL.createObjectURL(outFile);
+        // Generation guard: only commit if the run/settings generation is still current.
+        const now1 = stateRef.current;
+        const isCurrentGen1 =
+          now1.runId === startedRunId &&
+          now1.settingsRev === startedSettingsRev;
 
-            const sizeBefore = item.src.file.size;
-            const sizeAfter = outFile.size;
-            const reductionRatio =
-              sizeBefore > 0
-                ? Math.max(0, (sizeBefore - sizeAfter) / sizeBefore)
-                : 0;
-
-            dispatch({
-              type: 'FINISH_ITEM',
-              id: item.id,
-              out: {
-                file: outFile,
-                previewUrl,
-                sizeBefore,
-                sizeAfter,
-                reductionRatio,
-              },
-            });
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : 'Unknown error';
-            dispatch({ type: 'FAIL_ITEM', id: item.id, error: msg });
+        if (!isCurrentGen1) {
+          // If the item still exists, put it back to the queue so it can be processed
+          // with the latest settings.
+          if (now1.items.some((it) => it.id === next.id)) {
+            dispatch({ type: 'REQUEUE_ITEM', id: next.id });
           }
-        }),
-      );
+          return;
+        }
+
+        // Create ObjectURL only after we know it is likely to be accepted.
+        const previewUrl = URL.createObjectURL(outFile);
+
+        // Re-check generation just before dispatch, to avoid races.
+        const now2 = stateRef.current;
+        const isCurrentGen2 =
+          now2.runId === startedRunId &&
+          now2.settingsRev === startedSettingsRev;
+        if (!isCurrentGen2) {
+          safeRevokeObjectURL(previewUrl);
+          if (now2.items.some((it) => it.id === next.id)) {
+            dispatch({ type: 'REQUEUE_ITEM', id: next.id });
+          }
+          return;
+        }
+
+        dispatch({
+          type: 'FINISH_ITEM',
+          id: next.id,
+          out: {
+            file: outFile,
+            previewUrl,
+            sizeBefore,
+            sizeAfter,
+            reductionRatio,
+          },
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Unknown error';
+
+        const now = stateRef.current;
+        const isCurrentGen =
+          now.runId === startedRunId && now.settingsRev === startedSettingsRev;
+        if (!isCurrentGen) {
+          if (now.items.some((it) => it.id === next.id)) {
+            dispatch({ type: 'REQUEUE_ITEM', id: next.id });
+          }
+          return;
+        }
+
+        dispatch({ type: 'FAIL_ITEM', id: next.id, error: msg });
+      } finally {
+        inFlightRef.current = null;
+      }
     };
 
     run();
-  }, [state.items, state.settings.jpegQuality]);
+  }, [state.items, state.activeItemId, state.runId, state.settingsRev]);
 
   const gridItems = selectGridItems(state.items);
   const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
@@ -147,9 +214,6 @@ export default function App() {
 
         <button type="button" onClick={onReset}>
           Reset
-        </button>
-        <button type="button" onClick={onConvert}>
-          Convert
         </button>
       </form>
 
