@@ -6,6 +6,7 @@ export type AppAction =
   | { type: 'FINISH_ITEM'; id: string; out: JobItem['out'] }
   | { type: 'FAIL_ITEM'; id: string; error: string }
   | { type: 'RETRY_ITEM'; id: string }
+  | { type: 'REQUEUE_ITEM'; id: string }
   | { type: 'CLEAR_SESSION' }
   | { type: 'SET_SETTINGS'; settings: Partial<ConvertSettings> };
 
@@ -83,6 +84,24 @@ export default function appReducer(
     case 'RETRY_ITEM': {
       return {
         ...state,
+        items: updateItem(state.items, action.id, (it) => ({
+          ...it,
+          status: 'queued',
+          out: undefined,
+          error: undefined,
+          isNew: false,
+        })),
+      };
+    }
+
+    case 'REQUEUE_ITEM': {
+      // Used when an in-flight conversion completed, but its result should be discarded
+      // due to generation mismatch (e.g. settings changed). We clear the active lock
+      // and put the item back into the queue.
+      return {
+        ...state,
+        activeItemId:
+          state.activeItemId === action.id ? null : state.activeItemId,
         items: updateItem(state.items, action.id, (it) => ({
           ...it,
           status: 'queued',
