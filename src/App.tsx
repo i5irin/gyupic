@@ -76,14 +76,27 @@ export default function App() {
 
   const onChangeFiles = useCallback(
     async (files: File[]) => {
-      const imageFiles = await Promise.all(
+      const results = await Promise.allSettled(
         files.map(async (file) => {
           const imageFile = await ImageFileService.load(file);
           return { file, imageFile };
         }),
       );
+      const ok = results
+        .filter(
+          (r): r is PromiseFulfilledResult<{ file: File; imageFile: any }> =>
+            r.status === 'fulfilled',
+        )
+        .map((r) => r.value);
+      const failedCount = results.length - ok.length;
+      if (failedCount > 0) {
+        showToast(`Skipped ${failedCount} invalid file(s).`);
+      }
+      if (ok.length === 0) {
+        return;
+      }
 
-      const newItems: JobItem[] = imageFiles.map(({ file, imageFile }) => ({
+      const newItems: JobItem[] = ok.map(({ file, imageFile }) => ({
         id: createId(),
         createdAt: Date.now(),
         isNew: true,
@@ -97,6 +110,60 @@ export default function App() {
 
       dispatch({ type: 'ADD_ITEMS', items: newItems });
       showToast(`Added (+${newItems.length})`);
+    },
+    [showToast],
+  );
+
+  const onRetry = useCallback(
+    (id: string) => {
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        return;
+      }
+
+      safeRevokeObjectURL(item.out?.previewUrl);
+      dispatch({ type: 'RETRY_ITEM', id });
+    },
+    [dispatch],
+  );
+
+  const onDownload = useCallback(
+    (id: string) => {
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        showToast('Download unavailable (item not found).');
+        return;
+      }
+      if (item.status !== 'done') {
+        showToast('Download is available after conversion finishes.');
+        return;
+      }
+      const file = item.out?.file;
+      if (!file) {
+        showToast('Download failed. Please retry conversion.');
+        return;
+      }
+
+      try {
+        const url = URL.createObjectURL(file);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name || 'image.jpg';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        // Revoke ASAP (after click is queued)
+        window.setTimeout(() => {
+          safeRevokeObjectURL(url);
+        }, 0);
+      } catch (e) {
+        showToast('Download failed.');
+      }
     },
     [showToast],
   );
@@ -217,7 +284,12 @@ export default function App() {
         </button>
       </form>
 
-      <ItemsGrid items={gridItems} scrollToId={scrollToId} />
+      <ItemsGrid
+        items={gridItems}
+        scrollToId={scrollToId}
+        onRetry={onRetry}
+        onDownload={onDownload}
+      />
 
       {toastMessage && <Toast message={toastMessage} />}
     </div>
