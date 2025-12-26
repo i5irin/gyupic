@@ -31,6 +31,16 @@
   font-size: 14px;
 }
 
+.settings-panel-range {
+  width: 100%;
+}
+
+.settings-panel-note {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
 .settings-panel-actions {
   display: flex;
   gap: 10px;
