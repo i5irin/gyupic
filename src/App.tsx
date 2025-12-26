@@ -168,6 +168,28 @@ export default function App() {
     [showToast],
   );
 
+  const onCancel = useCallback(
+    (id: string) => {
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        return;
+      }
+      if (item.status !== 'queued' && item.status !== 'processing') {
+        return;
+      }
+      dispatch({ type: 'CANCEL_ITEM', id });
+      showToast('Canceled.');
+    },
+    [showToast],
+  );
+
+  const isCanceledNow = (id: string) => {
+    const now = stateRef.current;
+    const it = now.items.find((x) => x.id === id);
+    return it?.status === 'canceled';
+  };
+
   // Automatic conversion queue (single concurrency).
   // When there is no active processing item, automatically start the next queued item.
   useEffect(() => {
@@ -199,6 +221,12 @@ export default function App() {
           startedQuality,
         );
 
+        // If user canceled while converting, discard result and just release the queue.
+        if (isCanceledNow(next.id)) {
+          dispatch({ type: 'END_ITEM', id: next.id });
+          return;
+        }
+
         const outFile = converted.asFile();
         const sizeBefore = next.src.file.size;
         const sizeAfter = outFile.size;
@@ -214,9 +242,12 @@ export default function App() {
           now1.settingsRev === startedSettingsRev;
 
         if (!isCurrentGen1) {
-          // If the item still exists, put it back to the queue so it can be processed
-          // with the latest settings.
-          if (now1.items.some((it) => it.id === next.id)) {
+          const nowItem = now1.items.find((it) => it.id === next.id);
+          if (nowItem?.status === 'canceled') {
+            dispatch({ type: 'END_ITEM', id: next.id });
+          } else if (nowItem) {
+            // If the item still exists, put it back to the queue so it can be processed
+            // with the latest settings.
             dispatch({ type: 'REQUEUE_ITEM', id: next.id });
           }
           return;
@@ -225,6 +256,12 @@ export default function App() {
         // Create ObjectURL only after we know it is likely to be accepted.
         const previewUrl = URL.createObjectURL(outFile);
 
+        if (isCanceledNow(next.id)) {
+          safeRevokeObjectURL(previewUrl);
+          dispatch({ type: 'END_ITEM', id: next.id });
+          return;
+        }
+
         // Re-check generation just before dispatch, to avoid races.
         const now2 = stateRef.current;
         const isCurrentGen2 =
@@ -232,7 +269,10 @@ export default function App() {
           now2.settingsRev === startedSettingsRev;
         if (!isCurrentGen2) {
           safeRevokeObjectURL(previewUrl);
-          if (now2.items.some((it) => it.id === next.id)) {
+          const nowItem2 = now2.items.find((it) => it.id === next.id);
+          if (nowItem2?.status === 'canceled') {
+            dispatch({ type: 'END_ITEM', id: next.id });
+          } else if (nowItem2) {
             dispatch({ type: 'REQUEUE_ITEM', id: next.id });
           }
           return;
@@ -252,11 +292,19 @@ export default function App() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unknown error';
 
+        if (isCanceledNow(next.id)) {
+          dispatch({ type: 'END_ITEM', id: next.id });
+          return;
+        }
+
         const now = stateRef.current;
         const isCurrentGen =
           now.runId === startedRunId && now.settingsRev === startedSettingsRev;
         if (!isCurrentGen) {
-          if (now.items.some((it) => it.id === next.id)) {
+          const nowItem = now.items.find((it) => it.id === next.id);
+          if (nowItem?.status === 'canceled') {
+            dispatch({ type: 'END_ITEM', id: next.id });
+          } else if (nowItem) {
             dispatch({ type: 'REQUEUE_ITEM', id: next.id });
           }
           return;
@@ -289,6 +337,7 @@ export default function App() {
         scrollToId={scrollToId}
         onRetry={onRetry}
         onDownload={onDownload}
+        onCancel={onCancel}
       />
 
       {toastMessage && <Toast message={toastMessage} />}

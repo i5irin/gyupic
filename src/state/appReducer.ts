@@ -6,7 +6,9 @@ export type AppAction =
   | { type: 'FINISH_ITEM'; id: string; out: JobItem['out'] }
   | { type: 'FAIL_ITEM'; id: string; error: string }
   | { type: 'RETRY_ITEM'; id: string }
+  | { type: 'CANCEL_ITEM'; id: string }
   | { type: 'REQUEUE_ITEM'; id: string }
+  | { type: 'END_ITEM'; id: string }
   | { type: 'CLEAR_SESSION' }
   | { type: 'SET_SETTINGS'; settings: Partial<ConvertSettings> };
 
@@ -94,6 +96,29 @@ export default function appReducer(
       };
     }
 
+    case 'CANCEL_ITEM': {
+      // Cancel does NOT interrupt the underlying conversion.
+      // - queued: remove from queue by marking as canceled.
+      // - processing: release the active lock and mark as canceled.
+      const target = state.items.find((it) => it.id === action.id);
+      if (!target) {
+        return state;
+      }
+      if (target.status !== 'queued' && target.status !== 'processing') {
+        return state;
+      }
+      return {
+        ...state,
+        items: updateItem(state.items, action.id, (it) => ({
+          ...it,
+          status: 'canceled',
+          isNew: false,
+          out: undefined,
+          error: undefined,
+        })),
+      };
+    }
+
     case 'REQUEUE_ITEM': {
       // Used when an in-flight conversion completed, but its result should be discarded
       // due to generation mismatch (e.g. settings changed). We clear the active lock
@@ -109,6 +134,14 @@ export default function appReducer(
           error: undefined,
           isNew: false,
         })),
+      };
+    }
+
+    case 'END_ITEM': {
+      return {
+        ...state,
+        activeItemId:
+          state.activeItemId === action.id ? null : state.activeItemId,
       };
     }
 
