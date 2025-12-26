@@ -76,14 +76,27 @@ export default function App() {
 
   const onChangeFiles = useCallback(
     async (files: File[]) => {
-      const imageFiles = await Promise.all(
+      const results = await Promise.allSettled(
         files.map(async (file) => {
           const imageFile = await ImageFileService.load(file);
           return { file, imageFile };
         }),
       );
+      const ok = results
+        .filter(
+          (r): r is PromiseFulfilledResult<{ file: File; imageFile: any }> =>
+            r.status === 'fulfilled',
+        )
+        .map((r) => r.value);
+      const failedCount = results.length - ok.length;
+      if (failedCount > 0) {
+        showToast(`Skipped ${failedCount} invalid file(s).`);
+      }
+      if (ok.length === 0) {
+        return;
+      }
 
-      const newItems: JobItem[] = imageFiles.map(({ file, imageFile }) => ({
+      const newItems: JobItem[] = ok.map(({ file, imageFile }) => ({
         id: createId(),
         createdAt: Date.now(),
         isNew: true,
