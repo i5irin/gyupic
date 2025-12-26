@@ -103,14 +103,57 @@ export default function App() {
 
   const onRetry = useCallback(
     (id: string) => {
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        return;
+      }
+
+      safeRevokeObjectURL(item.out?.previewUrl);
       dispatch({ type: 'RETRY_ITEM', id });
     },
     [dispatch],
   );
 
-  const onDownload = useCallback(() => {
-    // no-op
-  }, []);
+  const onDownload = useCallback(
+    (id: string) => {
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        showToast('Download unavailable (item not found).');
+        return;
+      }
+      if (item.status !== 'done') {
+        showToast('Download is available after conversion finishes.');
+        return;
+      }
+      const file = item.out?.file;
+      if (!file) {
+        showToast('Download failed. Please retry conversion.');
+        return;
+      }
+
+      try {
+        const url = URL.createObjectURL(file);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name || 'image.jpg';
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        // Revoke ASAP (after click is queued)
+        window.setTimeout(() => {
+          safeRevokeObjectURL(url);
+        }, 0);
+      } catch (e) {
+        showToast('Download failed.');
+      }
+    },
+    [showToast],
+  );
 
   // Automatic conversion queue (single concurrency).
   // When there is no active processing item, automatically start the next queued item.
