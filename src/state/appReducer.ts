@@ -8,6 +8,7 @@ export type AppAction =
   | { type: 'RETRY_ITEM'; id: string }
   | { type: 'CANCEL_ITEM'; id: string }
   | { type: 'REQUEUE_ITEM'; id: string }
+  | { type: 'END_ITEM'; id: string }
   | { type: 'CLEAR_SESSION' }
   | { type: 'SET_SETTINGS'; settings: Partial<ConvertSettings> };
 
@@ -99,7 +100,6 @@ export default function appReducer(
       // Cancel does NOT interrupt the underlying conversion.
       // - queued: remove from queue by marking as canceled.
       // - processing: release the active lock and mark as canceled.
-      // The in-flight result must be discarded by the conversion effect
       const target = state.items.find((it) => it.id === action.id);
       if (!target) {
         return state;
@@ -109,8 +109,6 @@ export default function appReducer(
       }
       return {
         ...state,
-        activeItemId:
-          state.activeItemId === action.id ? null : state.activeItemId,
         items: updateItem(state.items, action.id, (it) => ({
           ...it,
           status: 'canceled',
@@ -136,6 +134,14 @@ export default function appReducer(
           error: undefined,
           isNew: false,
         })),
+      };
+    }
+
+    case 'END_ITEM': {
+      return {
+        ...state,
+        activeItemId:
+          state.activeItemId === action.id ? null : state.activeItemId,
       };
     }
 
