@@ -3,6 +3,7 @@ import ImageFileService from './services/image-file-service';
 import FilePicker from './components/FilePicker';
 import ItemsGrid from './components/ItemsGrid';
 import Toast from './components/Toast';
+import SettingsPanel from './components/SettingsPanel';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
@@ -184,6 +185,13 @@ export default function App() {
     [showToast],
   );
 
+  const onApplySettings = useCallback(
+    (jpegQuality: number) => {
+      dispatch({ type: 'SET_SETTINGS', settings: { jpegQuality } });
+    },
+    [dispatch],
+  );
+
   const isCanceledNow = (id: string) => {
     const now = stateRef.current;
     const it = now.items.find((x) => x.id === id);
@@ -331,6 +339,11 @@ export default function App() {
           Reset
         </button>
       </form>
+
+      <SettingsPanel
+        currentJpegQuality={state.settings.jpegQuality}
+        onApply={onApplySettings}
+      />
 
       <ItemsGrid
         items={gridItems}
