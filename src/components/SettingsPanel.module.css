@@ -1,0 +1,66 @@
+.settings-panel {
+  padding: 12px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 12px;
+}
+
+.settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.settings-panel-title {
+  margin: 0;
+  font-size: 16px;
+}
+
+.settings-panel-body {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+}
+
+.settings-panel-row {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-panel-label {
+  font-size: 14px;
+}
+
+.settings-panel-range {
+  width: 100%;
+}
+
+.settings-panel-note {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+.settings-panel-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-panel-apply-button {
+  padding: 6px 12px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid rgb(0 0 0 / 18%);
+  border-radius: 10px;
+}
+
+.settings-panel-apply-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.settings-panel-hint {
+  font-size: 12px;
+  opacity: 0.8;
+}
