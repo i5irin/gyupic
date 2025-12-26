@@ -168,6 +168,22 @@ export default function App() {
     [showToast],
   );
 
+  const onCancel = useCallback(
+    (id: string) => {
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        return;
+      }
+      if (item.status !== 'queued' && item.status !== 'processing') {
+        return;
+      }
+      dispatch({ type: 'CANCEL_ITEM', id });
+      showToast('Canceled.');
+    },
+    [showToast],
+  );
+
   const isCanceledNow = (id: string) => {
     const now = stateRef.current;
     const it = now.items.find((x) => x.id === id);
@@ -321,6 +337,7 @@ export default function App() {
         scrollToId={scrollToId}
         onRetry={onRetry}
         onDownload={onDownload}
+        onCancel={onCancel}
       />
 
       {toastMessage && <Toast message={toastMessage} />}
