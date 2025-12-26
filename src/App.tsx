@@ -188,8 +188,9 @@ export default function App() {
   const onApplySettings = useCallback(
     (jpegQuality: number) => {
       dispatch({ type: 'SET_SETTINGS', settings: { jpegQuality } });
+      showToast(`Quality applied: ${Math.round(jpegQuality * 100)}%`);
     },
-    [dispatch],
+    [dispatch, showToast],
   );
 
   const isCanceledNow = (id: string) => {
