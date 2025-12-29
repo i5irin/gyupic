@@ -137,7 +137,7 @@ export default function App() {
         showToast('Download unavailable (item not found).');
         return;
       }
-      if (item.status !== 'done') {
+      if (item.status !== 'done' && item.status !== 'warning') {
         showToast('Download is available after conversion finishes.');
         return;
       }
