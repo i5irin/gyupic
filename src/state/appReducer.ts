@@ -1,11 +1,13 @@
 import type {
   AppState,
   ConvertSettings,
-  DeliveryScenarioId,
   JobCaptureSnapshot,
   JobItem,
 } from './jobTypes';
-import { DEFAULT_DELIVERY_SCENARIO_ID } from './jobTypes';
+import {
+  DEFAULT_DELIVERY_SCENARIO_ID,
+  DeliveryScenarioId,
+} from '../domain/deliveryScenarios';
 
 export type AppAction =
   | { type: 'ADD_ITEMS'; items: JobItem[] }
