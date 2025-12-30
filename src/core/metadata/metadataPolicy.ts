@@ -277,6 +277,16 @@ export async function applyTimestamp({
       ...evaluateStatus(false, effectiveScenarioId, 'Timestamp unavailable'),
     };
   }
+  if (derived.kind === 'file') {
+    return {
+      file,
+      ...evaluateStatus(
+        false,
+        effectiveScenarioId,
+        'Exif timestamp missing (file metadata only)',
+      ),
+    };
+  }
 
   try {
     const dataUrl = await blobToDataURL(file);
