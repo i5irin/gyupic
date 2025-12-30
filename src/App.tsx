@@ -28,6 +28,7 @@ type PresetOptionView = {
   title: string;
   description: string;
   guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+  category: 'stable' | 'experimental';
   disabled: boolean;
   disabledReason?: string;
 };
@@ -109,6 +110,7 @@ export default function App() {
             title: preset.title,
             description: preset.description,
             guarantee: delivery?.guarantee ?? 'guaranteed',
+            category: preset.category,
             disabled: issues.length > 0,
             disabledReason: issues.length > 0 ? issues.join(' / ') : undefined,
           };
@@ -518,7 +520,11 @@ export default function App() {
   return (
     <div>
       <form>
-        <FilePicker inputRef={inputRef} onFilesSelected={onChangeFiles} />
+        <FilePicker
+          inputRef={inputRef}
+          onFilesSelected={onChangeFiles}
+          pickupId={state.pickupId}
+        />
 
         <button type="button" onClick={onReset}>
           Reset
