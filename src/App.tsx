@@ -440,8 +440,37 @@ export default function App() {
 
     const run = async () => {
       try {
+        const prepRecorder = createPerfRecorder({
+          scenario: 'processing-prep',
+          pickupId: startedPickupId,
+          deliveryId: startedDeliveryId,
+          presetId: startedPresetId,
+        });
+        let preparedFile: File;
+        try {
+          const imageFile = await runPerfSpan(
+            prepRecorder,
+            'loadSourceImage',
+            () => ImageFileService.load(next.src.file),
+          );
+          const converted = await runPerfSpan(
+            prepRecorder,
+            'convertToJpeg',
+            () => ImageFileService.convertToJpeg(imageFile, startedQuality),
+          );
+          preparedFile = converted.asFile();
+        } finally {
+          prepRecorder?.commit();
+        }
+
+        if (isCanceledNow(next.id)) {
+          dispatch({ type: 'END_ITEM', id: next.id });
+          return;
+        }
+
         const pipelineResult = await executor.run({
           sourceFile: next.src.file,
+          preparedFile,
           jpegQuality: startedQuality,
           pickupId: startedPickupId,
           deliveryId: startedDeliveryId,

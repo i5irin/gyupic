@@ -8,6 +8,7 @@ import { createPerfRecorder, runPerfSpan } from '../../utils/perfTrace';
 
 export type ProcessingPipelineParams = {
   sourceFile: File;
+  preparedFile?: File;
   jpegQuality: number;
   pickupId: PickupId;
   deliveryId: DeliveryId;
@@ -29,6 +30,7 @@ export async function runProcessingPipeline(
 ): Promise<ProcessingPipelineResult> {
   const {
     sourceFile,
+    preparedFile,
     jpegQuality,
     pickupId,
     deliveryId,
@@ -44,9 +46,18 @@ export async function runProcessingPipeline(
 
   let extraInfo: Record<string, unknown> | undefined;
   try {
-    const imageFile = await runPerfSpan(recorder, 'loadSourceImage', () =>
-      ImageFileService.load(sourceFile),
-    );
+    let convertedFile: File;
+    if (preparedFile) {
+      convertedFile = preparedFile;
+    } else {
+      const imageFile = await runPerfSpan(recorder, 'loadSourceImage', () =>
+        ImageFileService.load(sourceFile),
+      );
+      const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
+        ImageFileService.convertToJpeg(imageFile, jpegQuality),
+      );
+      convertedFile = converted.asFile();
+    }
 
     const derivedTimestamp = await runPerfSpan(
       recorder,
@@ -57,13 +68,9 @@ export async function runProcessingPipeline(
         }),
     );
 
-    const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
-      ImageFileService.convertToJpeg(imageFile, jpegQuality),
-    );
-
     const applyResult = await runPerfSpan(recorder, 'applyTimestamp', () =>
       applyTimestamp({
-        file: converted.asFile(),
+        file: convertedFile,
         derived: derivedTimestamp,
         deliveryId,
         metadataPolicyMode,
