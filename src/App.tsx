@@ -21,6 +21,11 @@ import {
   type DeliveryId,
   getDelivery,
 } from './domain/deliveryCatalog';
+import {
+  PICKUP_CATALOG,
+  type PickupId,
+  getPickup,
+} from './domain/pickupCatalog';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -223,6 +228,18 @@ export default function App() {
     [dispatch, showToast],
   );
 
+  const pickupOptions = useMemo(
+    () =>
+      Object.values(PICKUP_CATALOG)
+        .filter((pickup) => pickup.category === 'stable')
+        .map((pickup) => ({
+          id: pickup.id,
+          title: pickup.title,
+          description: pickup.description,
+        })),
+    [],
+  );
+
   const deliveryOptions = useMemo(
     () =>
       Object.values(DELIVERY_CATALOG)
@@ -234,6 +251,21 @@ export default function App() {
           guarantee: delivery.guarantee,
         })),
     [],
+  );
+
+  const onChangePickup = useCallback(
+    (pickupId: string) => {
+      const typedId = pickupId as PickupId;
+      if (typedId === stateRef.current.pickupId) {
+        return;
+      }
+      dispatch({ type: 'SET_PICKUP', pickupId: typedId });
+      const pickup = getPickup(typedId);
+      if (pickup) {
+        showToast(`Pickup: ${pickup.title}`);
+      }
+    },
+    [dispatch, showToast],
   );
 
   const onChangeDelivery = useCallback(
@@ -456,6 +488,9 @@ export default function App() {
 
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
+        pickupId={state.pickupId}
+        pickupOptions={pickupOptions}
+        onChangePickup={onChangePickup}
         deliveryId={state.deliveryId}
         deliveryOptions={deliveryOptions}
         onChangeDelivery={onChangeDelivery}
