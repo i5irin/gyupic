@@ -7,6 +7,7 @@ import SettingsPanel from './components/SettingsPanel';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
+import { runProcessingPipeline } from './core/pipeline/processingPipeline';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -137,7 +138,7 @@ export default function App() {
         showToast('Download unavailable (item not found).');
         return;
       }
-      if (item.status !== 'done') {
+      if (item.status !== 'done' && item.status !== 'warning') {
         showToast('Download is available after conversion finishes.');
         return;
       }
@@ -219,30 +220,32 @@ export default function App() {
     const startedRunId = latest.runId;
     const startedSettingsRev = latest.settingsRev;
     const startedQuality = latest.settings.jpegQuality;
+    const startedScenarioId = latest.deliveryScenarioId;
 
     inFlightRef.current = next.id;
     dispatch({ type: 'START_ITEM', id: next.id });
 
     const run = async () => {
       try {
-        const converted = await ImageFileService.convertToJpeg(
-          next.src.imageFile,
-          startedQuality,
-        );
+        const pipelineResult = await runProcessingPipeline({
+          sourceFile: next.src.file,
+          sourceImage: next.src.imageFile,
+          jpegQuality: startedQuality,
+          scenarioId: startedScenarioId,
+        });
+        const {
+          file: outFile,
+          sizeBefore,
+          sizeAfter,
+          reductionRatio,
+          metadata,
+          warningReason,
+        } = pipelineResult;
 
-        // If user canceled while converting, discard result and just release the queue.
         if (isCanceledNow(next.id)) {
           dispatch({ type: 'END_ITEM', id: next.id });
           return;
         }
-
-        const outFile = converted.asFile();
-        const sizeBefore = next.src.file.size;
-        const sizeAfter = outFile.size;
-        const reductionRatio =
-          sizeBefore > 0
-            ? Math.max(0, (sizeBefore - sizeAfter) / sizeBefore)
-            : 0;
 
         // Generation guard: only commit if the run/settings generation is still current.
         const now1 = stateRef.current;
@@ -296,7 +299,9 @@ export default function App() {
             sizeBefore,
             sizeAfter,
             reductionRatio,
+            metadata,
           },
+          warningReason,
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unknown error';
