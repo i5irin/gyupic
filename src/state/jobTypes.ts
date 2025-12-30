@@ -1,4 +1,3 @@
-import ImageFile from '../models/image-file';
 import type { DeliveryId } from '../domain/deliveryCatalog';
 import type { PickupId } from '../domain/pickupCatalog';
 import type { MetadataPolicyMode, PresetId } from '../domain/presets';
@@ -14,7 +13,6 @@ export type JobStatus =
 export type JobSource = {
   file: File;
   previewUrl: string;
-  imageFile: ImageFile;
 };
 
 export type ExifTimestampField =
