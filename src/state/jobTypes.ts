@@ -1,5 +1,7 @@
 import ImageFile from '../models/image-file';
-import type { DeliveryScenarioId } from '../domain/deliveryScenarios';
+import type { DeliveryId } from '../domain/deliveryCatalog';
+import type { PickupId } from '../domain/pickupCatalog';
+import type { MetadataPolicyMode, PresetId } from '../domain/presets';
 
 export type JobStatus =
   | 'queued'
@@ -32,11 +34,15 @@ export type DerivedTimestamp =
 
 export type MetadataGuaranteeStatus =
   | 'guaranteed'
+  | 'best-effort'
   | 'warning'
   | 'skipped';
 
 export type JobMetadataInfo = {
-  scenarioId: DeliveryScenarioId;
+  presetId: PresetId;
+  pickupId: PickupId;
+  deliveryId: DeliveryId;
+  metadataPolicyMode: MetadataPolicyMode;
   derived: DerivedTimestamp;
   status: MetadataGuaranteeStatus;
   reason?: string;
@@ -68,6 +74,8 @@ export type JobItem = {
 
 export type ConvertSettings = {
   jpegQuality: number;
+  presetId: PresetId;
+  metadataPolicyMode: MetadataPolicyMode;
 };
 
 export type AppState = {
@@ -77,12 +85,16 @@ export type AppState = {
   settingsRev: number;
   activeItemId: string | null;
   lastAddedIds: string[];
-  deliveryScenarioId: DeliveryScenarioId;
+  presetId: PresetId;
+  pickupId: PickupId;
+  deliveryId: DeliveryId;
 };
 
 export type JobCaptureSnapshot = {
   runId: number;
   settingsRev: number;
-  deliveryScenarioId: DeliveryScenarioId;
+  presetId: PresetId;
+  pickupId: PickupId;
+  deliveryId: DeliveryId;
   startedAt: number;
 };

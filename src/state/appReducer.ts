@@ -5,9 +5,11 @@ import type {
   JobItem,
 } from './jobTypes';
 import {
-  DEFAULT_DELIVERY_SCENARIO_ID,
-  DeliveryScenarioId,
-} from '../domain/deliveryScenarios';
+  DEFAULT_DELIVERY_ID,
+  type DeliveryId,
+} from '../domain/deliveryCatalog';
+import { DEFAULT_PICKUP_ID, type PickupId } from '../domain/pickupCatalog';
+import { DEFAULT_PRESET_ID, type PresetId, getPreset } from '../domain/presets';
 
 export type AppAction =
   | { type: 'ADD_ITEMS'; items: JobItem[] }
@@ -25,18 +27,30 @@ export type AppAction =
   | { type: 'END_ITEM'; id: string }
   | { type: 'CLEAR_SESSION' }
   | { type: 'SET_SETTINGS'; settings: Partial<ConvertSettings> }
-  | { type: 'SET_DELIVERY_SCENARIO'; scenarioId: DeliveryScenarioId };
+  | { type: 'SET_PRESET'; presetId: PresetId }
+  | { type: 'SET_DELIVERY'; deliveryId: DeliveryId }
+  | { type: 'SET_PICKUP'; pickupId: PickupId };
+
+function ensurePreset(id: PresetId | undefined) {
+  return getPreset(id ?? DEFAULT_PRESET_ID) ?? getPreset(DEFAULT_PRESET_ID)!;
+}
+
+const defaultPreset = ensurePreset(DEFAULT_PRESET_ID);
 
 export const initialState: AppState = {
   items: [],
   runId: 1,
   settings: {
-    jpegQuality: 1,
+    jpegQuality: defaultPreset.defaultJpegQuality,
+    presetId: defaultPreset.id,
+    metadataPolicyMode: defaultPreset.metadataPolicyMode,
   },
   settingsRev: 1,
   activeItemId: null,
   lastAddedIds: [],
-  deliveryScenarioId: DEFAULT_DELIVERY_SCENARIO_ID,
+  presetId: defaultPreset.id,
+  pickupId: defaultPreset.pickupId ?? DEFAULT_PICKUP_ID,
+  deliveryId: defaultPreset.deliveryId ?? DEFAULT_DELIVERY_ID,
 };
 
 function updateItem(
@@ -65,7 +79,9 @@ export default function appReducer(
       const snapshot: JobCaptureSnapshot = {
         runId: state.runId,
         settingsRev: state.settingsRev,
-        deliveryScenarioId: state.deliveryScenarioId,
+        presetId: state.settings.presetId,
+        pickupId: state.pickupId,
+        deliveryId: state.deliveryId,
         startedAt: Date.now(),
       };
       return {
@@ -186,6 +202,23 @@ export default function appReducer(
       };
     }
 
+    case 'SET_PRESET': {
+      const preset = ensurePreset(action.presetId);
+      return {
+        ...state,
+        settings: {
+          ...state.settings,
+          jpegQuality: preset.defaultJpegQuality,
+          presetId: preset.id,
+          metadataPolicyMode: preset.metadataPolicyMode,
+        },
+        settingsRev: state.settingsRev + 1,
+        presetId: preset.id,
+        pickupId: preset.pickupId,
+        deliveryId: preset.deliveryId,
+      };
+    }
+
     case 'CLEAR_SESSION': {
       // NOTE: ObjectURL revoke is handled outside the reducer.
       return {
@@ -193,14 +226,23 @@ export default function appReducer(
         runId: state.runId + 1,
         settings: state.settings,
         settingsRev: state.settingsRev,
-        deliveryScenarioId: state.deliveryScenarioId,
+        presetId: state.presetId,
+        pickupId: state.pickupId,
+        deliveryId: state.deliveryId,
       };
     }
 
-    case 'SET_DELIVERY_SCENARIO': {
+    case 'SET_DELIVERY': {
       return {
         ...state,
-        deliveryScenarioId: action.scenarioId,
+        deliveryId: action.deliveryId,
+      };
+    }
+
+    case 'SET_PICKUP': {
+      return {
+        ...state,
+        pickupId: action.pickupId,
       };
     }
 

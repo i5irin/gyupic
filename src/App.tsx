@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useReducer, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useReducer,
+  useState,
+} from 'react';
 import ImageFileService from './services/image-file-service';
 import FilePicker from './components/FilePicker';
 import ItemsGrid from './components/ItemsGrid';
@@ -8,6 +15,23 @@ import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
 import { runProcessingPipeline } from './core/pipeline/processingPipeline';
+import {
+  DELIVERY_CATALOG,
+  DeliveryIds,
+  getDelivery,
+} from './domain/deliveryCatalog';
+import { getPickup } from './domain/pickupCatalog';
+import { listPresets, getPreset, type PresetId } from './domain/presets';
+
+type PresetOptionView = {
+  id: PresetId;
+  title: string;
+  description: string;
+  guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+  category: 'stable' | 'experimental';
+  disabled: boolean;
+  disabledReason?: string;
+};
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -41,6 +65,64 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const [shareSupported, setShareSupported] = useState(false);
+
+  const environmentInfo = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return { isHttps: false, canShareFiles: false };
+    }
+    const isHttps =
+      window.location.protocol === 'https:' || window.isSecureContext === true;
+    let canShareFiles = false;
+    const nav = navigator as Navigator & {
+      canShare?: (data: ShareData & { files?: File[] }) => boolean;
+    };
+    if (typeof nav?.canShare === 'function' && typeof File === 'function') {
+      try {
+        const testFile = new File(['gyupic'], 'check.txt', {
+          type: 'text/plain',
+        });
+        canShareFiles = nav.canShare({ files: [testFile] });
+      } catch {
+        canShareFiles = false;
+      }
+    }
+    return { isHttps, canShareFiles };
+  }, []);
+
+  const presetOptions = useMemo<PresetOptionView[]>(
+    () =>
+      listPresets()
+        .map((preset) => {
+          const delivery = DELIVERY_CATALOG[preset.deliveryId];
+          const issues: string[] = [];
+          if (preset.requiresHttps && !environmentInfo.isHttps) {
+            issues.push('HTTPS connection required');
+          }
+          if (
+            preset.requiresNavigatorShareFiles &&
+            !environmentInfo.canShareFiles
+          ) {
+            issues.push('Device cannot share files via Share Sheet');
+          }
+          return {
+            id: preset.id,
+            title: preset.title,
+            description: preset.description,
+            guarantee: delivery?.guarantee ?? 'guaranteed',
+            category: preset.category,
+            disabled: issues.length > 0,
+            disabledReason: issues.length > 0 ? issues.join(' / ') : undefined,
+          };
+        })
+        .sort((a, b) => {
+          if (a.disabled === b.disabled) {
+            return 0;
+          }
+          return a.disabled ? 1 : -1;
+        }),
+    [environmentInfo],
+  );
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
@@ -55,6 +137,29 @@ export default function App() {
       toastTimerRef.current = null;
     }, 1800);
   }, []);
+
+  useEffect(() => {
+    setShareSupported(environmentInfo.canShareFiles);
+  }, [environmentInfo]);
+
+  useEffect(() => {
+    const currentPreset = presetOptions.find(
+      (option) => option.id === state.settings.presetId,
+    );
+    if (currentPreset && !currentPreset.disabled) {
+      return;
+    }
+    const fallback = presetOptions.find((option) => !option.disabled);
+    if (!fallback || fallback.id === state.settings.presetId) {
+      return;
+    }
+    dispatch({ type: 'SET_PRESET', presetId: fallback.id });
+    if (currentPreset?.disabledReason) {
+      showToast(
+        `${currentPreset.title} unavailable: ${currentPreset.disabledReason}`,
+      );
+    }
+  }, [presetOptions, state.settings.presetId, dispatch, showToast]);
 
   const onReset = useCallback(() => {
     // Revoke all ObjectURLs we own (src/out previews).
@@ -194,11 +299,79 @@ export default function App() {
     [dispatch, showToast],
   );
 
+  const onChangePreset = useCallback(
+    (presetId: string) => {
+      const typedId = presetId as PresetId;
+      const target = presetOptions.find((option) => option.id === typedId);
+      if (target?.disabled) {
+        if (target.disabledReason) {
+          showToast(target.disabledReason);
+        }
+        return;
+      }
+      dispatch({ type: 'SET_PRESET', presetId: typedId });
+      const preset = getPreset(typedId);
+      if (preset) {
+        showToast(`Preset: ${preset.title}`);
+      }
+    },
+    [dispatch, showToast, presetOptions],
+  );
+
   const isCanceledNow = (id: string) => {
     const now = stateRef.current;
     const it = now.items.find((x) => x.id === id);
     return it?.status === 'canceled';
   };
+
+  const onShare = useCallback(
+    async (id: string) => {
+      if (!shareSupported) {
+        showToast('Sharing is not supported on this device.');
+        return;
+      }
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        showToast('Share unavailable (item not found).');
+        return;
+      }
+      if (item.status !== 'done' && item.status !== 'warning') {
+        showToast('Share is available after conversion finishes.');
+        return;
+      }
+      const file = item.out?.file;
+      if (!file) {
+        showToast('Share failed. Please retry conversion.');
+        return;
+      }
+      const shareData: ShareData & { files: File[] } = {
+        title: 'Gyuppiku Output',
+        files: [file],
+      };
+      const nav = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+      };
+      if (typeof nav.canShare === 'function' && !nav.canShare(shareData)) {
+        showToast('Sharing files is not supported on this device.');
+        return;
+      }
+      try {
+        await nav.share(shareData);
+        if (stateRef.current.deliveryId === DeliveryIds.Files) {
+          showToast('Select “Save to Files” to keep the order.');
+        } else {
+          showToast('Shared.');
+        }
+      } catch (error) {
+        if ((error as Error)?.name === 'AbortError') {
+          return;
+        }
+        showToast('Share failed.');
+      }
+    },
+    [shareSupported, showToast],
+  );
 
   // Automatic conversion queue (single concurrency).
   // When there is no active processing item, automatically start the next queued item.
@@ -220,7 +393,10 @@ export default function App() {
     const startedRunId = latest.runId;
     const startedSettingsRev = latest.settingsRev;
     const startedQuality = latest.settings.jpegQuality;
-    const startedScenarioId = latest.deliveryScenarioId;
+    const startedPickupId = latest.pickupId;
+    const startedDeliveryId = latest.deliveryId;
+    const startedPresetId = latest.settings.presetId;
+    const startedMetadataPolicyMode = latest.settings.metadataPolicyMode;
 
     inFlightRef.current = next.id;
     dispatch({ type: 'START_ITEM', id: next.id });
@@ -231,7 +407,10 @@ export default function App() {
           sourceFile: next.src.file,
           sourceImage: next.src.imageFile,
           jpegQuality: startedQuality,
-          scenarioId: startedScenarioId,
+          pickupId: startedPickupId,
+          deliveryId: startedDeliveryId,
+          presetId: startedPresetId,
+          metadataPolicyMode: startedMetadataPolicyMode,
         });
         const {
           file: outFile,
@@ -334,12 +513,18 @@ export default function App() {
   }, [state.items, state.activeItemId, state.runId, state.settingsRev]);
 
   const gridItems = selectGridItems(state.items);
+  const selectedPickup = getPickup(state.pickupId);
+  const selectedDelivery = getDelivery(state.deliveryId);
   const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
 
   return (
     <div>
       <form>
-        <FilePicker inputRef={inputRef} onFilesSelected={onChangeFiles} />
+        <FilePicker
+          inputRef={inputRef}
+          onFilesSelected={onChangeFiles}
+          pickupId={state.pickupId}
+        />
 
         <button type="button" onClick={onReset}>
           Reset
@@ -348,6 +533,26 @@ export default function App() {
 
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
+        presetId={state.settings.presetId}
+        presetOptions={presetOptions}
+        onChangePreset={onChangePreset}
+        pickupInfo={
+          selectedPickup
+            ? {
+                title: selectedPickup.title,
+                description: selectedPickup.description,
+              }
+            : undefined
+        }
+        deliveryInfo={
+          selectedDelivery
+            ? {
+                title: selectedDelivery.title,
+                description: selectedDelivery.description,
+                guarantee: selectedDelivery.guarantee,
+              }
+            : undefined
+        }
         onApply={onApplySettings}
       />
 
@@ -357,6 +562,7 @@ export default function App() {
         onRetry={onRetry}
         onDownload={onDownload}
         onCancel={onCancel}
+        onShare={shareSupported ? onShare : undefined}
       />
 
       {toastMessage && <Toast message={toastMessage} />}

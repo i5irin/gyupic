@@ -1,10 +1,14 @@
 import exifr from 'exifr';
 import piexif from 'piexifjs';
-import type { DeliveryScenarioId } from '../../domain/deliveryScenarios';
+import type {
+  DeliveryDefinition,
+  DeliveryId,
+} from '../../domain/deliveryCatalog';
 import {
-  DELIVERY_SCENARIOS,
-  DEFAULT_DELIVERY_SCENARIO_ID,
-} from '../../domain/deliveryScenarios';
+  DELIVERY_CATALOG,
+  DEFAULT_DELIVERY_ID,
+} from '../../domain/deliveryCatalog';
+import type { MetadataPolicyMode } from '../../domain/presets';
 import type {
   DerivedTimestamp,
   MetadataGuaranteeStatus,
@@ -45,7 +49,8 @@ type DeriveOptions = {
 type ApplyOptions = {
   file: File;
   derived: DerivedTimestamp;
-  scenarioId?: DeliveryScenarioId;
+  deliveryId?: DeliveryId;
+  metadataPolicyMode?: MetadataPolicyMode;
 };
 
 export type ApplyResult = {
@@ -144,35 +149,76 @@ function dataURLToBlob(dataUrl: string, mimeType: string): Blob {
 
 function evaluateStatus(
   success: boolean,
-  scenarioId: DeliveryScenarioId,
+  delivery: DeliveryDefinition | undefined,
   failureReason?: string,
 ): { status: MetadataGuaranteeStatus; warningReason?: string } {
   if (!success) {
     return {
       status: 'warning',
-      warningReason: failureReason || 'Metadata guarantee unavailable',
+      warningReason:
+        failureReason ||
+        delivery?.warningCondition ||
+        'Metadata guarantee unavailable',
     };
   }
 
-  const scenario = DELIVERY_SCENARIOS[scenarioId];
-  if (!scenario) {
+  if (!delivery) {
     return {
       status: 'warning',
-      warningReason: 'Unknown delivery scenario',
+      warningReason: 'Unknown delivery path',
+    };
+  }
+
+  if (delivery.guarantee === 'best-effort') {
+    return {
+      status: 'best-effort',
+      warningReason:
+        delivery.bestEffortMessage ||
+        'This delivery path is best-effort and may vary.',
     };
   }
 
   if (
-    scenario.category === 'experimental' ||
-    scenario.guarantee === 'unverified'
+    delivery.category === 'experimental' ||
+    delivery.guarantee === 'unverified'
   ) {
     return {
       status: 'skipped',
-      warningReason: `${scenario.title} is not verified yet`,
+      warningReason: `${delivery.title} is not verified yet`,
     };
   }
 
   return { status: 'guaranteed' };
+}
+
+function parseExifDateTime(value: string, offset?: string): number | null {
+  const match = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/u.exec(
+    value,
+  );
+  if (!match) {
+    return null;
+  }
+  const [, year, month, day, hours, minutes, seconds] = match;
+  const iso = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${
+    offset ?? 'Z'
+  }`;
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) {
+    return null;
+  }
+  return timestamp;
+}
+
+function resolveLastModifiedFromDerived(
+  derived: DerivedTimestamp,
+): number | null {
+  if (derived.kind === 'file') {
+    return derived.value;
+  }
+  if (derived.kind === 'exif') {
+    return parseExifDateTime(derived.value, derived.offset ?? undefined);
+  }
+  return null;
 }
 
 function normalizeExifValue(raw: unknown): string | null {
@@ -255,37 +301,33 @@ export async function deriveTimestamp({
   return { kind: 'unavailable' };
 }
 
+const DEFAULT_METADATA_POLICY_MODE: MetadataPolicyMode = 'strict';
+
 export async function applyTimestamp({
   file,
   derived,
-  scenarioId,
+  deliveryId,
+  metadataPolicyMode,
 }: ApplyOptions): Promise<ApplyResult> {
-  const effectiveScenarioId = scenarioId ?? DEFAULT_DELIVERY_SCENARIO_ID;
+  const effectiveDeliveryId = deliveryId ?? DEFAULT_DELIVERY_ID;
+  const policyMode = metadataPolicyMode ?? DEFAULT_METADATA_POLICY_MODE;
+  const delivery = DELIVERY_CATALOG[effectiveDeliveryId];
+  const sortingAxis = delivery?.sortingAxis ?? 'exif';
+  const allowFileFallback =
+    sortingAxis === 'file' || policyMode === 'fallback-filetime';
+  const rewriteFileTimestamp =
+    sortingAxis === 'file' || policyMode === 'fallback-filetime';
   if (!isExifWritable(file)) {
     return {
       file,
-      ...evaluateStatus(
-        false,
-        effectiveScenarioId,
-        'File type does not support Exif',
-      ),
+      ...evaluateStatus(false, delivery, 'File type does not support Exif'),
     };
   }
 
   if (derived.kind === 'unavailable') {
     return {
       file,
-      ...evaluateStatus(false, effectiveScenarioId, 'Timestamp unavailable'),
-    };
-  }
-  if (derived.kind === 'file') {
-    return {
-      file,
-      ...evaluateStatus(
-        false,
-        effectiveScenarioId,
-        'Exif timestamp missing (file metadata only)',
-      ),
+      ...evaluateStatus(false, delivery, 'Timestamp unavailable'),
     };
   }
 
@@ -303,11 +345,7 @@ export async function applyTimestamp({
     if (!dateStrings) {
       return {
         file,
-        ...evaluateStatus(
-          false,
-          effectiveScenarioId,
-          'Unsupported timestamp format',
-        ),
+        ...evaluateStatus(false, delivery, 'Unsupported timestamp format'),
       };
     }
 
@@ -323,22 +361,48 @@ export async function applyTimestamp({
     const exifBytes = piexif.dump(payload);
     const injected = piexif.insert(exifBytes, stripped);
     const blob = dataURLToBlob(injected, file.type || JPEG_MIME);
-    const nextFile = new File([blob], file.name || 'image.jpg', {
+    const fileOptions: FilePropertyBag = {
       type: file.type || JPEG_MIME,
-    });
+    };
+
+    if (rewriteFileTimestamp) {
+      const lastModified = resolveLastModifiedFromDerived(derived);
+      if (typeof lastModified === 'number' && Number.isFinite(lastModified)) {
+        fileOptions.lastModified = lastModified;
+      }
+    }
+
+    const nextFile = new File([blob], file.name || 'image.jpg', fileOptions);
+
+    const success =
+      derived.kind === 'exif' || (derived.kind === 'file' && allowFileFallback);
+    const fallbackReason =
+      !success && derived.kind === 'file'
+        ? 'Exif timestamp missing (file metadata only)'
+        : undefined;
+
+    let statusResult = evaluateStatus(success, delivery, fallbackReason);
+    if (
+      policyMode === 'strict-best-effort' &&
+      derived.kind === 'file' &&
+      !success
+    ) {
+      statusResult = {
+        status: 'best-effort',
+        warningReason:
+          fallbackReason ||
+          'Timestamp derived from file metadata (best-effort)',
+      };
+    }
 
     return {
       file: nextFile,
-      ...evaluateStatus(true, effectiveScenarioId),
+      ...statusResult,
     };
   } catch (error) {
     return {
       file,
-      ...evaluateStatus(
-        false,
-        effectiveScenarioId,
-        'Failed to inject Exif timestamp',
-      ),
+      ...evaluateStatus(false, delivery, 'Failed to inject Exif timestamp'),
     };
   }
 }
