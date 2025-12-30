@@ -70,6 +70,7 @@ function isExifWritable(file: File): boolean {
   return isExifCapable(file);
 }
 
+// NOTE: The numbers and Dates returned by exifr represent UTC timestamps with OffsetTime already applied.
 function formatExifLocalDate(date: Date): string {
   const pad = (value: number) => value.toString().padStart(2, '0');
   return `${date.getFullYear()}:${pad(date.getMonth() + 1)}:${pad(
