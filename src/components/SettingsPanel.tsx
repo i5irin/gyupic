@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import styles from './SettingsPanel.module.css';
 
-type DeliveryOption = {
-  id: string;
+type DeliveryInfo = {
   title: string;
   description: string;
   guarantee: 'guaranteed' | 'best-effort' | 'unverified';
@@ -13,6 +12,8 @@ type PresetOption = {
   title: string;
   description: string;
   guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+  disabled?: boolean;
+  disabledReason?: string;
 };
 
 type Props = {
@@ -21,7 +22,7 @@ type Props = {
   presetOptions: PresetOption[];
   onChangePreset: (id: string) => void;
   pickupInfo?: { title: string; description: string };
-  deliveryInfo?: DeliveryOption;
+  deliveryInfo?: DeliveryInfo;
   onApply: (jpegQuality: number) => void;
 };
 
@@ -63,7 +64,7 @@ export default function SettingsPanel({
     [presetId, presetOptions],
   );
 
-  const deliveryBadgeClass = (guarantee: DeliveryOption['guarantee']) => {
+  const deliveryBadgeClass = (guarantee: DeliveryInfo['guarantee']) => {
     switch (guarantee) {
       case 'best-effort':
         return styles.settingsPanelBadgeBestEffort;
@@ -75,7 +76,7 @@ export default function SettingsPanel({
     }
   };
 
-  const deliveryBadgeLabel = (guarantee: DeliveryOption['guarantee']) => {
+  const deliveryBadgeLabel = (guarantee: DeliveryInfo['guarantee']) => {
     switch (guarantee) {
       case 'best-effort':
         return 'Best effort';
@@ -110,8 +111,13 @@ export default function SettingsPanel({
                 }}
               >
                 {presetOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
+                  <option
+                    key={option.id}
+                    value={option.id}
+                    disabled={option.disabled}
+                  >
                     {option.title}
+                    {option.disabled ? ' (Unavailable)' : ''}
                   </option>
                 ))}
               </select>
@@ -126,6 +132,11 @@ export default function SettingsPanel({
                 >
                   {deliveryBadgeLabel(selectedPreset.guarantee)}
                 </span>
+                {selectedPreset.disabled && selectedPreset.disabledReason && (
+                  <div className={styles.settingsPanelWarning}>
+                    {selectedPreset.disabledReason}
+                  </div>
+                )}
               </div>
             )}
           </div>

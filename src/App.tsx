@@ -23,6 +23,15 @@ import {
 import { getPickup } from './domain/pickupCatalog';
 import { listPresets, getPreset, type PresetId } from './domain/presets';
 
+type PresetOptionView = {
+  id: PresetId;
+  title: string;
+  description: string;
+  guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+  disabled: boolean;
+  disabledReason?: string;
+};
+
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return (crypto as unknown as { randomUUID: () => string }).randomUUID();
@@ -57,6 +66,62 @@ export default function App() {
   const toastTimerRef = useRef<number | null>(null);
   const [shareSupported, setShareSupported] = useState(false);
 
+  const environmentInfo = useMemo(() => {
+    if (typeof window === 'undefined') {
+      return { isHttps: false, canShareFiles: false };
+    }
+    const isHttps =
+      window.location.protocol === 'https:' || window.isSecureContext === true;
+    let canShareFiles = false;
+    const nav = navigator as Navigator & {
+      canShare?: (data: ShareData & { files?: File[] }) => boolean;
+    };
+    if (typeof nav?.canShare === 'function' && typeof File === 'function') {
+      try {
+        const testFile = new File(['gyupic'], 'check.txt', {
+          type: 'text/plain',
+        });
+        canShareFiles = nav.canShare({ files: [testFile] });
+      } catch {
+        canShareFiles = false;
+      }
+    }
+    return { isHttps, canShareFiles };
+  }, []);
+
+  const presetOptions = useMemo<PresetOptionView[]>(
+    () =>
+      listPresets()
+        .map((preset) => {
+          const delivery = DELIVERY_CATALOG[preset.deliveryId];
+          const issues: string[] = [];
+          if (preset.requiresHttps && !environmentInfo.isHttps) {
+            issues.push('HTTPS connection required');
+          }
+          if (
+            preset.requiresNavigatorShareFiles &&
+            !environmentInfo.canShareFiles
+          ) {
+            issues.push('Device cannot share files via Share Sheet');
+          }
+          return {
+            id: preset.id,
+            title: preset.title,
+            description: preset.description,
+            guarantee: delivery?.guarantee ?? 'guaranteed',
+            disabled: issues.length > 0,
+            disabledReason: issues.length > 0 ? issues.join(' / ') : undefined,
+          };
+        })
+        .sort((a, b) => {
+          if (a.disabled === b.disabled) {
+            return 0;
+          }
+          return a.disabled ? 1 : -1;
+        }),
+    [environmentInfo],
+  );
+
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
 
@@ -72,19 +137,27 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const supported =
-      typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-    setToastMessage(
-      JSON.stringify({
-        supported,
-        shareType: typeof (navigator as any).share,
-        isSecureContext,
-        protocol: window.location.protocol,
-        href: window.location.href,
-      }),
+    setShareSupported(environmentInfo.canShareFiles);
+  }, [environmentInfo]);
+
+  useEffect(() => {
+    const currentPreset = presetOptions.find(
+      (option) => option.id === state.settings.presetId,
     );
-    setShareSupported(supported);
-  }, []);
+    if (currentPreset && !currentPreset.disabled) {
+      return;
+    }
+    const fallback = presetOptions.find((option) => !option.disabled);
+    if (!fallback || fallback.id === state.settings.presetId) {
+      return;
+    }
+    dispatch({ type: 'SET_PRESET', presetId: fallback.id });
+    if (currentPreset?.disabledReason) {
+      showToast(
+        `${currentPreset.title} unavailable: ${currentPreset.disabledReason}`,
+      );
+    }
+  }, [presetOptions, state.settings.presetId, dispatch, showToast]);
 
   const onReset = useCallback(() => {
     // Revoke all ObjectURLs we own (src/out previews).
@@ -224,32 +297,23 @@ export default function App() {
     [dispatch, showToast],
   );
 
-  const presetOptions = useMemo(
-    () =>
-      listPresets()
-        .filter((preset) => preset.category === 'stable')
-        .map((preset) => {
-          const delivery = DELIVERY_CATALOG[preset.deliveryId];
-          return {
-            id: preset.id,
-            title: preset.title,
-            description: preset.description,
-            guarantee: delivery?.guarantee ?? 'guaranteed',
-          };
-        }),
-    [],
-  );
-
   const onChangePreset = useCallback(
     (presetId: string) => {
       const typedId = presetId as PresetId;
+      const target = presetOptions.find((option) => option.id === typedId);
+      if (target?.disabled) {
+        if (target.disabledReason) {
+          showToast(target.disabledReason);
+        }
+        return;
+      }
       dispatch({ type: 'SET_PRESET', presetId: typedId });
       const preset = getPreset(typedId);
       if (preset) {
         showToast(`Preset: ${preset.title}`);
       }
     },
-    [dispatch, showToast],
+    [dispatch, showToast, presetOptions],
   );
 
   const isCanceledNow = (id: string) => {
@@ -477,7 +541,6 @@ export default function App() {
         deliveryInfo={
           selectedDelivery
             ? {
-                id: selectedDelivery.id,
                 title: selectedDelivery.title,
                 description: selectedDelivery.description,
                 guarantee: selectedDelivery.guarantee,
