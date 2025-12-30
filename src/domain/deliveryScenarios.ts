@@ -11,7 +11,7 @@ export type DeliveryScenarioId =
 
 export type DeliveryScenarioCategory = 'stable' | 'experimental';
 
-export type SortingAxis = 'exif' | 'os' | 'unknown';
+export type SortingAxis = 'exif' | 'file' | 'os' | 'unknown';
 
 export type Guarantee = 'guaranteed' | 'best-effort' | 'unverified';
 
@@ -23,6 +23,7 @@ export type DeliveryScenario = {
   sortingAxis: SortingAxis;
   guarantee: Guarantee;
   warningCondition: string;
+  bestEffortMessage?: string;
 };
 
 export const DELIVERY_SCENARIOS: Record<DeliveryScenarioId, DeliveryScenario> =
@@ -39,7 +40,7 @@ export const DELIVERY_SCENARIOS: Record<DeliveryScenarioId, DeliveryScenario> =
     },
     [DeliveryScenarioIds.IosShareSheet]: {
       id: DeliveryScenarioIds.IosShareSheet,
-      category: 'stable',
+      category: 'experimental',
       title: 'iOS Share Sheet',
       description:
         'A flow that sends content from the share sheet to Messages, Mail, etc.',
@@ -47,17 +48,19 @@ export const DELIVERY_SCENARIOS: Record<DeliveryScenarioId, DeliveryScenario> =
       guarantee: 'best-effort',
       warningCondition:
         'Trigger a warning if the Exif capture date/time cannot be written back, or if an ordering discrepancy is detected at the share destination',
+      bestEffortMessage:
+        'This sharing flow is best-effort. Ordering may depend on the destination app.',
     },
     [DeliveryScenarioIds.IosFiles]: {
       id: DeliveryScenarioIds.IosFiles,
-      category: 'stable',
+      category: 'experimental',
       title: 'iOS Files App',
       description:
         'A flow where files are saved to the Files app and then returned to operation',
-      sortingAxis: 'exif',
-      guarantee: 'best-effort',
+      sortingAxis: 'file',
+      guarantee: 'unverified',
       warningCondition:
-        'Trigger a warning if the written-back Exif cannot be confirmed or is lost during saving',
+        'Not supported in the current phase. Files app sorts by download time and cannot be guaranteed.',
     },
     [DeliveryScenarioIds.AndroidTodo]: {
       id: DeliveryScenarioIds.AndroidTodo,

@@ -17,6 +17,7 @@ import { selectGridItems } from './state/selectors';
 import { runProcessingPipeline } from './core/pipeline/processingPipeline';
 import {
   DELIVERY_SCENARIOS,
+  DeliveryScenarioIds,
   type DeliveryScenarioId,
 } from './domain/deliveryScenarios';
 
@@ -52,6 +53,7 @@ export default function App() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const [shareSupported, setShareSupported] = useState(false);
 
   const showToast = useCallback((message: string) => {
     setToastMessage(message);
@@ -65,6 +67,12 @@ export default function App() {
       setToastMessage(null);
       toastTimerRef.current = null;
     }, 1800);
+  }, []);
+
+  useEffect(() => {
+    const supported =
+      typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+    setShareSupported(supported);
   }, []);
 
   const onReset = useCallback(() => {
@@ -239,6 +247,57 @@ export default function App() {
     return it?.status === 'canceled';
   };
 
+  const onShare = useCallback(
+    async (id: string) => {
+      if (!shareSupported) {
+        showToast('Sharing is not supported on this device.');
+        return;
+      }
+      const { current } = stateRef;
+      const item = current.items.find((it) => it.id === id);
+      if (!item) {
+        showToast('Share unavailable (item not found).');
+        return;
+      }
+      if (item.status !== 'done' && item.status !== 'warning') {
+        showToast('Share is available after conversion finishes.');
+        return;
+      }
+      const file = item.out?.file;
+      if (!file) {
+        showToast('Share failed. Please retry conversion.');
+        return;
+      }
+      const shareData: ShareData & { files: File[] } = {
+        title: 'Gyuppiku Output',
+        files: [file],
+      };
+      const nav = navigator as Navigator & {
+        canShare?: (data: ShareData) => boolean;
+      };
+      if (typeof nav.canShare === 'function' && !nav.canShare(shareData)) {
+        showToast('Sharing files is not supported on this device.');
+        return;
+      }
+      try {
+        await nav.share(shareData);
+        if (
+          stateRef.current.deliveryScenarioId === DeliveryScenarioIds.IosFiles
+        ) {
+          showToast('Select “Save to Files” to keep the order.');
+        } else {
+          showToast('Shared.');
+        }
+      } catch (error) {
+        if ((error as Error)?.name === 'AbortError') {
+          return;
+        }
+        showToast('Share failed.');
+      }
+    },
+    [shareSupported, showToast],
+  );
+
   // Automatic conversion queue (single concurrency).
   // When there is no active processing item, automatically start the next queued item.
   useEffect(() => {
@@ -399,6 +458,7 @@ export default function App() {
         onRetry={onRetry}
         onDownload={onDownload}
         onCancel={onCancel}
+        onShare={shareSupported ? onShare : undefined}
       />
 
       {toastMessage && <Toast message={toastMessage} />}

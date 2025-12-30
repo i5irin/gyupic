@@ -1,6 +1,6 @@
 import exifr from 'exifr';
 import piexif from 'piexifjs';
-import type { DeliveryScenarioId } from '../../domain/deliveryScenarios';
+import type { DeliveryScenario, DeliveryScenarioId } from '../../domain/deliveryScenarios';
 import {
   DELIVERY_SCENARIOS,
   DEFAULT_DELIVERY_SCENARIO_ID,
@@ -144,21 +144,32 @@ function dataURLToBlob(dataUrl: string, mimeType: string): Blob {
 
 function evaluateStatus(
   success: boolean,
-  scenarioId: DeliveryScenarioId,
+  scenario: DeliveryScenario | undefined,
   failureReason?: string,
 ): { status: MetadataGuaranteeStatus; warningReason?: string } {
   if (!success) {
     return {
       status: 'warning',
-      warningReason: failureReason || 'Metadata guarantee unavailable',
+      warningReason:
+        failureReason ||
+        scenario?.warningCondition ||
+        'Metadata guarantee unavailable',
     };
   }
 
-  const scenario = DELIVERY_SCENARIOS[scenarioId];
   if (!scenario) {
     return {
       status: 'warning',
       warningReason: 'Unknown delivery scenario',
+    };
+  }
+
+  if (scenario.guarantee === 'best-effort') {
+    return {
+      status: 'best-effort',
+      warningReason:
+        scenario.bestEffortMessage ||
+        'This delivery scenario is best-effort and may vary.',
     };
   }
 
@@ -173,6 +184,35 @@ function evaluateStatus(
   }
 
   return { status: 'guaranteed' };
+}
+
+function parseExifDateTime(value: string, offset?: string): number | null {
+  const match =
+    /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/u.exec(value);
+  if (!match) {
+    return null;
+  }
+  const [, year, month, day, hours, minutes, seconds] = match;
+  const iso = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${
+    offset ?? 'Z'
+  }`;
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) {
+    return null;
+  }
+  return timestamp;
+}
+
+function resolveLastModifiedFromDerived(
+  derived: DerivedTimestamp,
+): number | null {
+  if (derived.kind === 'file') {
+    return derived.value;
+  }
+  if (derived.kind === 'exif') {
+    return parseExifDateTime(derived.value, derived.offset ?? undefined);
+  }
+  return null;
 }
 
 function normalizeExifValue(raw: unknown): string | null {
@@ -261,12 +301,16 @@ export async function applyTimestamp({
   scenarioId,
 }: ApplyOptions): Promise<ApplyResult> {
   const effectiveScenarioId = scenarioId ?? DEFAULT_DELIVERY_SCENARIO_ID;
+  const scenario = DELIVERY_SCENARIOS[effectiveScenarioId];
+  const sortingAxis = scenario?.sortingAxis ?? 'exif';
+  const allowFileFallback = sortingAxis === 'file';
+  const rewriteFileTimestamp = sortingAxis === 'file';
   if (!isExifWritable(file)) {
     return {
       file,
       ...evaluateStatus(
         false,
-        effectiveScenarioId,
+        scenario,
         'File type does not support Exif',
       ),
     };
@@ -275,17 +319,7 @@ export async function applyTimestamp({
   if (derived.kind === 'unavailable') {
     return {
       file,
-      ...evaluateStatus(false, effectiveScenarioId, 'Timestamp unavailable'),
-    };
-  }
-  if (derived.kind === 'file') {
-    return {
-      file,
-      ...evaluateStatus(
-        false,
-        effectiveScenarioId,
-        'Exif timestamp missing (file metadata only)',
-      ),
+      ...evaluateStatus(false, scenario, 'Timestamp unavailable'),
     };
   }
 
@@ -305,7 +339,7 @@ export async function applyTimestamp({
         file,
         ...evaluateStatus(
           false,
-          effectiveScenarioId,
+          scenario,
           'Unsupported timestamp format',
         ),
       };
@@ -323,20 +357,36 @@ export async function applyTimestamp({
     const exifBytes = piexif.dump(payload);
     const injected = piexif.insert(exifBytes, stripped);
     const blob = dataURLToBlob(injected, file.type || JPEG_MIME);
-    const nextFile = new File([blob], file.name || 'image.jpg', {
+    const fileOptions: FilePropertyBag = {
       type: file.type || JPEG_MIME,
-    });
+    };
+
+    if (rewriteFileTimestamp) {
+      const lastModified = resolveLastModifiedFromDerived(derived);
+      if (typeof lastModified === 'number' && Number.isFinite(lastModified)) {
+        fileOptions.lastModified = lastModified;
+      }
+    }
+
+    const nextFile = new File([blob], file.name || 'image.jpg', fileOptions);
+
+    const success =
+      derived.kind === 'exif' || (derived.kind === 'file' && allowFileFallback);
+    const fallbackReason =
+      !success && derived.kind === 'file'
+        ? 'Exif timestamp missing (file metadata only)'
+        : undefined;
 
     return {
       file: nextFile,
-      ...evaluateStatus(true, effectiveScenarioId),
+      ...evaluateStatus(success, scenario, fallbackReason),
     };
   } catch (error) {
     return {
       file,
       ...evaluateStatus(
         false,
-        effectiveScenarioId,
+        scenario,
         'Failed to inject Exif timestamp',
       ),
     };
