@@ -1,5 +1,6 @@
 import ImageFile from '../models/image-file';
-import type { DeliveryScenarioId } from '../domain/deliveryScenarios';
+import type { DeliveryId } from '../domain/deliveryCatalog';
+import type { PickupId } from '../domain/pickupCatalog';
 
 export type JobStatus =
   | 'queued'
@@ -37,7 +38,8 @@ export type MetadataGuaranteeStatus =
   | 'skipped';
 
 export type JobMetadataInfo = {
-  scenarioId: DeliveryScenarioId;
+  pickupId: PickupId;
+  deliveryId: DeliveryId;
   derived: DerivedTimestamp;
   status: MetadataGuaranteeStatus;
   reason?: string;
@@ -78,12 +80,14 @@ export type AppState = {
   settingsRev: number;
   activeItemId: string | null;
   lastAddedIds: string[];
-  deliveryScenarioId: DeliveryScenarioId;
+  pickupId: PickupId;
+  deliveryId: DeliveryId;
 };
 
 export type JobCaptureSnapshot = {
   runId: number;
   settingsRev: number;
-  deliveryScenarioId: DeliveryScenarioId;
+  pickupId: PickupId;
+  deliveryId: DeliveryId;
   startedAt: number;
 };

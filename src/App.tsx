@@ -16,10 +16,11 @@ import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
 import { runProcessingPipeline } from './core/pipeline/processingPipeline';
 import {
-  DELIVERY_SCENARIOS,
-  DeliveryScenarioIds,
-  type DeliveryScenarioId,
-} from './domain/deliveryScenarios';
+  DELIVERY_CATALOG,
+  DeliveryIds,
+  type DeliveryId,
+  getDelivery,
+} from './domain/deliveryCatalog';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -72,6 +73,15 @@ export default function App() {
   useEffect(() => {
     const supported =
       typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+    setToastMessage(
+      JSON.stringify({
+        supported,
+        shareType: typeof (navigator as any).share,
+        isSecureContext,
+        protocol: window.location.protocol,
+        href: window.location.href,
+      }),
+    );
     setShareSupported(supported);
   }, []);
 
@@ -213,29 +223,29 @@ export default function App() {
     [dispatch, showToast],
   );
 
-  const scenarioOptions = useMemo(
+  const deliveryOptions = useMemo(
     () =>
-      Object.values(DELIVERY_SCENARIOS)
-        .filter((scenario) => scenario.category === 'stable')
-        .map((scenario) => ({
-          id: scenario.id,
-          title: scenario.title,
-          description: scenario.description,
-          guarantee: scenario.guarantee,
+      Object.values(DELIVERY_CATALOG)
+        .filter((delivery) => delivery.category === 'stable')
+        .map((delivery) => ({
+          id: delivery.id,
+          title: delivery.title,
+          description: delivery.description,
+          guarantee: delivery.guarantee,
         })),
     [],
   );
 
-  const onChangeScenario = useCallback(
-    (scenarioId: string) => {
-      const typedId = scenarioId as DeliveryScenarioId;
-      if (typedId === stateRef.current.deliveryScenarioId) {
+  const onChangeDelivery = useCallback(
+    (deliveryId: string) => {
+      const typedId = deliveryId as DeliveryId;
+      if (typedId === stateRef.current.deliveryId) {
         return;
       }
-      dispatch({ type: 'SET_DELIVERY_SCENARIO', scenarioId: typedId });
-      const scenario = DELIVERY_SCENARIOS[typedId];
-      if (scenario) {
-        showToast(`Scenario: ${scenario.title}`);
+      dispatch({ type: 'SET_DELIVERY', deliveryId: typedId });
+      const delivery = getDelivery(typedId);
+      if (delivery) {
+        showToast(`Delivery: ${delivery.title}`);
       }
     },
     [dispatch, showToast],
@@ -281,9 +291,7 @@ export default function App() {
       }
       try {
         await nav.share(shareData);
-        if (
-          stateRef.current.deliveryScenarioId === DeliveryScenarioIds.IosFiles
-        ) {
+        if (stateRef.current.deliveryId === DeliveryIds.Files) {
           showToast('Select “Save to Files” to keep the order.');
         } else {
           showToast('Shared.');
@@ -318,7 +326,8 @@ export default function App() {
     const startedRunId = latest.runId;
     const startedSettingsRev = latest.settingsRev;
     const startedQuality = latest.settings.jpegQuality;
-    const startedScenarioId = latest.deliveryScenarioId;
+    const startedPickupId = latest.pickupId;
+    const startedDeliveryId = latest.deliveryId;
 
     inFlightRef.current = next.id;
     dispatch({ type: 'START_ITEM', id: next.id });
@@ -329,7 +338,8 @@ export default function App() {
           sourceFile: next.src.file,
           sourceImage: next.src.imageFile,
           jpegQuality: startedQuality,
-          scenarioId: startedScenarioId,
+          pickupId: startedPickupId,
+          deliveryId: startedDeliveryId,
         });
         const {
           file: outFile,
@@ -446,9 +456,9 @@ export default function App() {
 
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
-        scenarioId={state.deliveryScenarioId}
-        scenarioOptions={scenarioOptions}
-        onChangeScenario={onChangeScenario}
+        deliveryId={state.deliveryId}
+        deliveryOptions={deliveryOptions}
+        onChangeDelivery={onChangeDelivery}
         onApply={onApplySettings}
       />
 

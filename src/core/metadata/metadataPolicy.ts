@@ -1,10 +1,10 @@
 import exifr from 'exifr';
 import piexif from 'piexifjs';
-import type { DeliveryScenario, DeliveryScenarioId } from '../../domain/deliveryScenarios';
+import type { DeliveryDefinition, DeliveryId } from '../../domain/deliveryCatalog';
 import {
-  DELIVERY_SCENARIOS,
-  DEFAULT_DELIVERY_SCENARIO_ID,
-} from '../../domain/deliveryScenarios';
+  DELIVERY_CATALOG,
+  DEFAULT_DELIVERY_ID,
+} from '../../domain/deliveryCatalog';
 import type {
   DerivedTimestamp,
   MetadataGuaranteeStatus,
@@ -45,7 +45,7 @@ type DeriveOptions = {
 type ApplyOptions = {
   file: File;
   derived: DerivedTimestamp;
-  scenarioId?: DeliveryScenarioId;
+  deliveryId?: DeliveryId;
 };
 
 export type ApplyResult = {
@@ -144,7 +144,7 @@ function dataURLToBlob(dataUrl: string, mimeType: string): Blob {
 
 function evaluateStatus(
   success: boolean,
-  scenario: DeliveryScenario | undefined,
+  delivery: DeliveryDefinition | undefined,
   failureReason?: string,
 ): { status: MetadataGuaranteeStatus; warningReason?: string } {
   if (!success) {
@@ -152,34 +152,34 @@ function evaluateStatus(
       status: 'warning',
       warningReason:
         failureReason ||
-        scenario?.warningCondition ||
+        delivery?.warningCondition ||
         'Metadata guarantee unavailable',
     };
   }
 
-  if (!scenario) {
+  if (!delivery) {
     return {
       status: 'warning',
-      warningReason: 'Unknown delivery scenario',
+      warningReason: 'Unknown delivery path',
     };
   }
 
-  if (scenario.guarantee === 'best-effort') {
+  if (delivery.guarantee === 'best-effort') {
     return {
       status: 'best-effort',
       warningReason:
-        scenario.bestEffortMessage ||
-        'This delivery scenario is best-effort and may vary.',
+        delivery.bestEffortMessage ||
+        'This delivery path is best-effort and may vary.',
     };
   }
 
   if (
-    scenario.category === 'experimental' ||
-    scenario.guarantee === 'unverified'
+    delivery.category === 'experimental' ||
+    delivery.guarantee === 'unverified'
   ) {
     return {
       status: 'skipped',
-      warningReason: `${scenario.title} is not verified yet`,
+      warningReason: `${delivery.title} is not verified yet`,
     };
   }
 
@@ -298,11 +298,11 @@ export async function deriveTimestamp({
 export async function applyTimestamp({
   file,
   derived,
-  scenarioId,
+  deliveryId,
 }: ApplyOptions): Promise<ApplyResult> {
-  const effectiveScenarioId = scenarioId ?? DEFAULT_DELIVERY_SCENARIO_ID;
-  const scenario = DELIVERY_SCENARIOS[effectiveScenarioId];
-  const sortingAxis = scenario?.sortingAxis ?? 'exif';
+  const effectiveDeliveryId = deliveryId ?? DEFAULT_DELIVERY_ID;
+  const delivery = DELIVERY_CATALOG[effectiveDeliveryId];
+  const sortingAxis = delivery?.sortingAxis ?? 'exif';
   const allowFileFallback = sortingAxis === 'file';
   const rewriteFileTimestamp = sortingAxis === 'file';
   if (!isExifWritable(file)) {
@@ -310,7 +310,7 @@ export async function applyTimestamp({
       file,
       ...evaluateStatus(
         false,
-        scenario,
+        delivery,
         'File type does not support Exif',
       ),
     };
@@ -319,7 +319,7 @@ export async function applyTimestamp({
   if (derived.kind === 'unavailable') {
     return {
       file,
-      ...evaluateStatus(false, scenario, 'Timestamp unavailable'),
+      ...evaluateStatus(false, delivery, 'Timestamp unavailable'),
     };
   }
 
@@ -339,7 +339,7 @@ export async function applyTimestamp({
         file,
         ...evaluateStatus(
           false,
-          scenario,
+          delivery,
           'Unsupported timestamp format',
         ),
       };
@@ -379,14 +379,14 @@ export async function applyTimestamp({
 
     return {
       file: nextFile,
-      ...evaluateStatus(success, scenario, fallbackReason),
+      ...evaluateStatus(success, delivery, fallbackReason),
     };
   } catch (error) {
     return {
       file,
       ...evaluateStatus(
         false,
-        scenario,
+        delivery,
         'Failed to inject Exif timestamp',
       ),
     };

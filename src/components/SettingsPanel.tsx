@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import styles from './SettingsPanel.module.css';
 
-type ScenarioOption = {
+type DeliveryOption = {
   id: string;
   title: string;
   description: string;
@@ -10,17 +10,17 @@ type ScenarioOption = {
 
 type Props = {
   currentJpegQuality: number;
-  scenarioId: string;
-  scenarioOptions: ScenarioOption[];
-  onChangeScenario: (id: string) => void;
+  deliveryId: string;
+  deliveryOptions: DeliveryOption[];
+  onChangeDelivery: (id: string) => void;
   onApply: (jpegQuality: number) => void;
 };
 
 export default function SettingsPanel({
   currentJpegQuality,
-  scenarioId,
-  scenarioOptions,
-  onChangeScenario,
+  deliveryId,
+  deliveryOptions,
+  onChangeDelivery,
   onApply,
 }: Props) {
   const MIN = 0.1;
@@ -47,12 +47,12 @@ export default function SettingsPanel({
     [draftQuality, currentJpegQuality],
   );
 
-  const selectedScenario = useMemo(
-    () => scenarioOptions.find((option) => option.id === scenarioId),
-    [scenarioId, scenarioOptions],
+  const selectedDelivery = useMemo(
+    () => deliveryOptions.find((option) => option.id === deliveryId),
+    [deliveryId, deliveryOptions],
   );
 
-  const scenarioBadgeClass = (guarantee: ScenarioOption['guarantee']) => {
+  const deliveryBadgeClass = (guarantee: DeliveryOption['guarantee']) => {
     switch (guarantee) {
       case 'best-effort':
         return styles.settingsPanelBadgeBestEffort;
@@ -64,7 +64,7 @@ export default function SettingsPanel({
     }
   };
 
-  const scenarioBadgeLabel = (guarantee: ScenarioOption['guarantee']) => {
+  const deliveryBadgeLabel = (guarantee: DeliveryOption['guarantee']) => {
     switch (guarantee) {
       case 'best-effort':
         return 'Best effort';
@@ -83,25 +83,25 @@ export default function SettingsPanel({
       </div>
 
       <div className={styles.settingsPanelBody}>
-        {scenarioOptions.length > 0 && (
+        {deliveryOptions.length > 0 && (
           <div className={styles.settingsPanelRow}>
             <label
               className={styles.settingsPanelLabel}
-              htmlFor="deliveryScenario"
+              htmlFor="deliveryPath"
             >
-              Delivery Scenario
+              Delivery Path
               <select
-                id="deliveryScenario"
+                id="deliveryPath"
                 className={styles.settingsPanelSelect}
-                value={scenarioId}
+                value={deliveryId}
                 onChange={(e) => {
                   const next = e.currentTarget.value;
-                  if (next !== scenarioId) {
-                    onChangeScenario(next);
+                  if (next !== deliveryId) {
+                    onChangeDelivery(next);
                   }
                 }}
               >
-                {scenarioOptions.map((option) => (
+                {deliveryOptions.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.title}
                   </option>
@@ -109,15 +109,15 @@ export default function SettingsPanel({
               </select>
             </label>
 
-            {selectedScenario && (
+            {selectedDelivery && (
               <div className={styles.settingsPanelScenarioDescription}>
-                <span>{selectedScenario.description}</span>
+                <span>{selectedDelivery.description}</span>
                 <span
-                  className={`${styles.settingsPanelBadge} ${scenarioBadgeClass(
-                    selectedScenario.guarantee,
+                  className={`${styles.settingsPanelBadge} ${deliveryBadgeClass(
+                    selectedDelivery.guarantee,
                   )}`}
                 >
-                  {scenarioBadgeLabel(selectedScenario.guarantee)}
+                  {deliveryBadgeLabel(selectedDelivery.guarantee)}
                 </span>
               </div>
             )}

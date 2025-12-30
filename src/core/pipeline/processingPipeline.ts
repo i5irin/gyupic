@@ -1,6 +1,7 @@
 import ImageFile from '../../models/image-file';
 import ImageFileService from '../../services/image-file-service';
-import type { DeliveryScenarioId } from '../../domain/deliveryScenarios';
+import type { DeliveryId } from '../../domain/deliveryCatalog';
+import type { PickupId } from '../../domain/pickupCatalog';
 import type { JobMetadataInfo } from '../../state/jobTypes';
 import { applyTimestamp, deriveTimestamp } from '../metadata/metadataPolicy';
 
@@ -8,7 +9,8 @@ export type ProcessingPipelineParams = {
   sourceFile: File;
   sourceImage: ImageFile;
   jpegQuality: number;
-  scenarioId: DeliveryScenarioId;
+  pickupId: PickupId;
+  deliveryId: DeliveryId;
 };
 
 export type ProcessingPipelineResult = {
@@ -23,7 +25,7 @@ export type ProcessingPipelineResult = {
 export async function runProcessingPipeline(
   params: ProcessingPipelineParams,
 ): Promise<ProcessingPipelineResult> {
-  const { sourceFile, sourceImage, jpegQuality, scenarioId } = params;
+  const { sourceFile, sourceImage, jpegQuality, pickupId, deliveryId } = params;
   const derivedTimestamp = await deriveTimestamp({
     file: sourceFile,
   });
@@ -36,7 +38,7 @@ export async function runProcessingPipeline(
   const applyResult = await applyTimestamp({
     file: converted.asFile(),
     derived: derivedTimestamp,
-    scenarioId,
+    deliveryId,
   });
 
   const outFile = applyResult.file;
@@ -53,7 +55,8 @@ export async function runProcessingPipeline(
     sizeAfter,
     reductionRatio,
     metadata: {
-      scenarioId,
+      pickupId,
+      deliveryId,
       derived: derivedTimestamp,
       status: applyResult.status,
       reason: applyResult.warningReason,
