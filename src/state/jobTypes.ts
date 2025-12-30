@@ -21,8 +21,13 @@ export type ExifTimestampField =
   | 'DateTime';
 
 export type DerivedTimestamp =
-  | { kind: 'exif'; field: ExifTimestampField; value: string }
-  | { kind: 'file'; value: number }
+  | {
+      kind: 'exif';
+      field: ExifTimestampField;
+      value: string;
+      offset?: string;
+    }
+  | { kind: 'file'; value: number; offset?: string }
   | { kind: 'unavailable' };
 
 export type MetadataGuaranteeStatus =
