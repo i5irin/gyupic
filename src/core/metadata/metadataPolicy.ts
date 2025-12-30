@@ -1,10 +1,14 @@
 import exifr from 'exifr';
 import piexif from 'piexifjs';
-import type { DeliveryDefinition, DeliveryId } from '../../domain/deliveryCatalog';
+import type {
+  DeliveryDefinition,
+  DeliveryId,
+} from '../../domain/deliveryCatalog';
 import {
   DELIVERY_CATALOG,
   DEFAULT_DELIVERY_ID,
 } from '../../domain/deliveryCatalog';
+import type { MetadataPolicyMode } from '../../domain/presets';
 import type {
   DerivedTimestamp,
   MetadataGuaranteeStatus,
@@ -46,6 +50,7 @@ type ApplyOptions = {
   file: File;
   derived: DerivedTimestamp;
   deliveryId?: DeliveryId;
+  metadataPolicyMode?: MetadataPolicyMode;
 };
 
 export type ApplyResult = {
@@ -187,8 +192,9 @@ function evaluateStatus(
 }
 
 function parseExifDateTime(value: string, offset?: string): number | null {
-  const match =
-    /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/u.exec(value);
+  const match = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/u.exec(
+    value,
+  );
   if (!match) {
     return null;
   }
@@ -295,24 +301,26 @@ export async function deriveTimestamp({
   return { kind: 'unavailable' };
 }
 
+const DEFAULT_METADATA_POLICY_MODE: MetadataPolicyMode = 'strict';
+
 export async function applyTimestamp({
   file,
   derived,
   deliveryId,
+  metadataPolicyMode,
 }: ApplyOptions): Promise<ApplyResult> {
   const effectiveDeliveryId = deliveryId ?? DEFAULT_DELIVERY_ID;
+  const policyMode = metadataPolicyMode ?? DEFAULT_METADATA_POLICY_MODE;
   const delivery = DELIVERY_CATALOG[effectiveDeliveryId];
   const sortingAxis = delivery?.sortingAxis ?? 'exif';
-  const allowFileFallback = sortingAxis === 'file';
-  const rewriteFileTimestamp = sortingAxis === 'file';
+  const allowFileFallback =
+    sortingAxis === 'file' || policyMode === 'fallback-filetime';
+  const rewriteFileTimestamp =
+    sortingAxis === 'file' || policyMode === 'fallback-filetime';
   if (!isExifWritable(file)) {
     return {
       file,
-      ...evaluateStatus(
-        false,
-        delivery,
-        'File type does not support Exif',
-      ),
+      ...evaluateStatus(false, delivery, 'File type does not support Exif'),
     };
   }
 
@@ -337,11 +345,7 @@ export async function applyTimestamp({
     if (!dateStrings) {
       return {
         file,
-        ...evaluateStatus(
-          false,
-          delivery,
-          'Unsupported timestamp format',
-        ),
+        ...evaluateStatus(false, delivery, 'Unsupported timestamp format'),
       };
     }
 
@@ -377,18 +381,28 @@ export async function applyTimestamp({
         ? 'Exif timestamp missing (file metadata only)'
         : undefined;
 
+    let statusResult = evaluateStatus(success, delivery, fallbackReason);
+    if (
+      policyMode === 'strict-best-effort' &&
+      derived.kind === 'file' &&
+      !success
+    ) {
+      statusResult = {
+        status: 'best-effort',
+        warningReason:
+          fallbackReason ||
+          'Timestamp derived from file metadata (best-effort)',
+      };
+    }
+
     return {
       file: nextFile,
-      ...evaluateStatus(success, delivery, fallbackReason),
+      ...statusResult,
     };
   } catch (error) {
     return {
       file,
-      ...evaluateStatus(
-        false,
-        delivery,
-        'Failed to inject Exif timestamp',
-      ),
+      ...evaluateStatus(false, delivery, 'Failed to inject Exif timestamp'),
     };
   }
 }

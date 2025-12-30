@@ -18,14 +18,10 @@ import { runProcessingPipeline } from './core/pipeline/processingPipeline';
 import {
   DELIVERY_CATALOG,
   DeliveryIds,
-  type DeliveryId,
   getDelivery,
 } from './domain/deliveryCatalog';
-import {
-  PICKUP_CATALOG,
-  type PickupId,
-  getPickup,
-} from './domain/pickupCatalog';
+import { getPickup } from './domain/pickupCatalog';
+import { listPresets, getPreset, type PresetId } from './domain/presets';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -228,56 +224,29 @@ export default function App() {
     [dispatch, showToast],
   );
 
-  const pickupOptions = useMemo(
+  const presetOptions = useMemo(
     () =>
-      Object.values(PICKUP_CATALOG)
-        .filter((pickup) => pickup.category === 'stable')
-        .map((pickup) => ({
-          id: pickup.id,
-          title: pickup.title,
-          description: pickup.description,
-        })),
+      listPresets()
+        .filter((preset) => preset.category === 'stable')
+        .map((preset) => {
+          const delivery = DELIVERY_CATALOG[preset.deliveryId];
+          return {
+            id: preset.id,
+            title: preset.title,
+            description: preset.description,
+            guarantee: delivery?.guarantee ?? 'guaranteed',
+          };
+        }),
     [],
   );
 
-  const deliveryOptions = useMemo(
-    () =>
-      Object.values(DELIVERY_CATALOG)
-        .filter((delivery) => delivery.category === 'stable')
-        .map((delivery) => ({
-          id: delivery.id,
-          title: delivery.title,
-          description: delivery.description,
-          guarantee: delivery.guarantee,
-        })),
-    [],
-  );
-
-  const onChangePickup = useCallback(
-    (pickupId: string) => {
-      const typedId = pickupId as PickupId;
-      if (typedId === stateRef.current.pickupId) {
-        return;
-      }
-      dispatch({ type: 'SET_PICKUP', pickupId: typedId });
-      const pickup = getPickup(typedId);
-      if (pickup) {
-        showToast(`Pickup: ${pickup.title}`);
-      }
-    },
-    [dispatch, showToast],
-  );
-
-  const onChangeDelivery = useCallback(
-    (deliveryId: string) => {
-      const typedId = deliveryId as DeliveryId;
-      if (typedId === stateRef.current.deliveryId) {
-        return;
-      }
-      dispatch({ type: 'SET_DELIVERY', deliveryId: typedId });
-      const delivery = getDelivery(typedId);
-      if (delivery) {
-        showToast(`Delivery: ${delivery.title}`);
+  const onChangePreset = useCallback(
+    (presetId: string) => {
+      const typedId = presetId as PresetId;
+      dispatch({ type: 'SET_PRESET', presetId: typedId });
+      const preset = getPreset(typedId);
+      if (preset) {
+        showToast(`Preset: ${preset.title}`);
       }
     },
     [dispatch, showToast],
@@ -360,6 +329,8 @@ export default function App() {
     const startedQuality = latest.settings.jpegQuality;
     const startedPickupId = latest.pickupId;
     const startedDeliveryId = latest.deliveryId;
+    const startedPresetId = latest.settings.presetId;
+    const startedMetadataPolicyMode = latest.settings.metadataPolicyMode;
 
     inFlightRef.current = next.id;
     dispatch({ type: 'START_ITEM', id: next.id });
@@ -372,6 +343,8 @@ export default function App() {
           jpegQuality: startedQuality,
           pickupId: startedPickupId,
           deliveryId: startedDeliveryId,
+          presetId: startedPresetId,
+          metadataPolicyMode: startedMetadataPolicyMode,
         });
         const {
           file: outFile,
@@ -474,6 +447,8 @@ export default function App() {
   }, [state.items, state.activeItemId, state.runId, state.settingsRev]);
 
   const gridItems = selectGridItems(state.items);
+  const selectedPickup = getPickup(state.pickupId);
+  const selectedDelivery = getDelivery(state.deliveryId);
   const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
 
   return (
@@ -488,12 +463,27 @@ export default function App() {
 
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
-        pickupId={state.pickupId}
-        pickupOptions={pickupOptions}
-        onChangePickup={onChangePickup}
-        deliveryId={state.deliveryId}
-        deliveryOptions={deliveryOptions}
-        onChangeDelivery={onChangeDelivery}
+        presetId={state.settings.presetId}
+        presetOptions={presetOptions}
+        onChangePreset={onChangePreset}
+        pickupInfo={
+          selectedPickup
+            ? {
+                title: selectedPickup.title,
+                description: selectedPickup.description,
+              }
+            : undefined
+        }
+        deliveryInfo={
+          selectedDelivery
+            ? {
+                id: selectedDelivery.id,
+                title: selectedDelivery.title,
+                description: selectedDelivery.description,
+                guarantee: selectedDelivery.guarantee,
+              }
+            : undefined
+        }
         onApply={onApplySettings}
       />
 

@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import styles from './SettingsPanel.module.css';
 
-type PickupOption = {
+type DeliveryOption = {
   id: string;
   title: string;
   description: string;
+  guarantee: 'guaranteed' | 'best-effort' | 'unverified';
 };
 
-type DeliveryOption = {
+type PresetOption = {
   id: string;
   title: string;
   description: string;
@@ -16,23 +17,21 @@ type DeliveryOption = {
 
 type Props = {
   currentJpegQuality: number;
-  pickupId: string;
-  pickupOptions: PickupOption[];
-  onChangePickup: (id: string) => void;
-  deliveryId: string;
-  deliveryOptions: DeliveryOption[];
-  onChangeDelivery: (id: string) => void;
+  presetId: string;
+  presetOptions: PresetOption[];
+  onChangePreset: (id: string) => void;
+  pickupInfo?: { title: string; description: string };
+  deliveryInfo?: DeliveryOption;
   onApply: (jpegQuality: number) => void;
 };
 
 export default function SettingsPanel({
   currentJpegQuality,
-  pickupId,
-  pickupOptions,
-  onChangePickup,
-  deliveryId,
-  deliveryOptions,
-  onChangeDelivery,
+  presetId,
+  presetOptions,
+  onChangePreset,
+  pickupInfo,
+  deliveryInfo,
   onApply,
 }: Props) {
   const MIN = 0.1;
@@ -59,14 +58,9 @@ export default function SettingsPanel({
     [draftQuality, currentJpegQuality],
   );
 
-  const selectedPickup = useMemo(
-    () => pickupOptions.find((option) => option.id === pickupId),
-    [pickupId, pickupOptions],
-  );
-
-  const selectedDelivery = useMemo(
-    () => deliveryOptions.find((option) => option.id === deliveryId),
-    [deliveryId, deliveryOptions],
+  const selectedPreset = useMemo(
+    () => presetOptions.find((option) => option.id === presetId),
+    [presetId, presetOptions],
   );
 
   const deliveryBadgeClass = (guarantee: DeliveryOption['guarantee']) => {
@@ -100,74 +94,67 @@ export default function SettingsPanel({
       </div>
 
       <div className={styles.settingsPanelBody}>
-        {pickupOptions.length > 0 && (
+        {presetOptions.length > 0 && (
           <div className={styles.settingsPanelRow}>
-            <label className={styles.settingsPanelLabel} htmlFor="pickupPath">
-              Pickup Source
+            <label className={styles.settingsPanelLabel} htmlFor="presetSelect">
+              Preset
               <select
-                id="pickupPath"
+                id="presetSelect"
                 className={styles.settingsPanelSelect}
-                value={pickupId}
+                value={presetId}
                 onChange={(e) => {
                   const next = e.currentTarget.value;
-                  if (next !== pickupId) {
-                    onChangePickup(next);
+                  if (next !== presetId) {
+                    onChangePreset(next);
                   }
                 }}
               >
-                {pickupOptions.map((option) => (
+                {presetOptions.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.title}
                   </option>
                 ))}
               </select>
             </label>
-            {selectedPickup && (
+            {selectedPreset && (
               <div className={styles.settingsPanelScenarioDescription}>
-                <span>{selectedPickup.description}</span>
+                <span>{selectedPreset.description}</span>
+                <span
+                  className={`${styles.settingsPanelBadge} ${deliveryBadgeClass(
+                    selectedPreset.guarantee,
+                  )}`}
+                >
+                  {deliveryBadgeLabel(selectedPreset.guarantee)}
+                </span>
               </div>
             )}
           </div>
         )}
 
-        {deliveryOptions.length > 0 && (
+        {pickupInfo && (
           <div className={styles.settingsPanelRow}>
-            <label
-              className={styles.settingsPanelLabel}
-              htmlFor="deliveryPath"
-            >
-              Delivery Path
-              <select
-                id="deliveryPath"
-                className={styles.settingsPanelSelect}
-                value={deliveryId}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  if (next !== deliveryId) {
-                    onChangeDelivery(next);
-                  }
-                }}
-              >
-                {deliveryOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className={styles.settingsPanelLabel}>Pickup Source</div>
+            <div className={styles.settingsPanelScenarioDescription}>
+              <strong>{pickupInfo.title}</strong>
+              <span>{pickupInfo.description}</span>
+            </div>
+          </div>
+        )}
 
-            {selectedDelivery && (
-              <div className={styles.settingsPanelScenarioDescription}>
-                <span>{selectedDelivery.description}</span>
-                <span
-                  className={`${styles.settingsPanelBadge} ${deliveryBadgeClass(
-                    selectedDelivery.guarantee,
-                  )}`}
-                >
-                  {deliveryBadgeLabel(selectedDelivery.guarantee)}
-                </span>
-              </div>
-            )}
+        {deliveryInfo && (
+          <div className={styles.settingsPanelRow}>
+            <div className={styles.settingsPanelLabel}>Delivery Path</div>
+            <div className={styles.settingsPanelScenarioDescription}>
+              <strong>{deliveryInfo.title}</strong>
+              <span>{deliveryInfo.description}</span>
+              <span
+                className={`${styles.settingsPanelBadge} ${deliveryBadgeClass(
+                  deliveryInfo.guarantee,
+                )}`}
+              >
+                {deliveryBadgeLabel(deliveryInfo.guarantee)}
+              </span>
+            </div>
           </div>
         )}
 
@@ -212,3 +199,8 @@ export default function SettingsPanel({
     </section>
   );
 }
+
+SettingsPanel.defaultProps = {
+  pickupInfo: undefined,
+  deliveryInfo: undefined,
+};
