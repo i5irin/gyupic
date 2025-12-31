@@ -14,7 +14,6 @@ import SettingsPanel from './components/SettingsPanel';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
-import { runProcessingPipeline } from './core/pipeline/processingPipeline';
 import {
   DELIVERY_CATALOG,
   DeliveryIds,
@@ -22,6 +21,7 @@ import {
 } from './domain/deliveryCatalog';
 import { getPickup } from './domain/pickupCatalog';
 import { listPresets, getPreset, type PresetId } from './domain/presets';
+import QueueManager from './core/execution/queueManager';
 
 type PresetOptionView = {
   id: PresetId;
@@ -45,13 +45,15 @@ function safeRevokeObjectURL(url: string | undefined) {
   try {
     URL.revokeObjectURL(url);
   } catch {
-    // noop
+    // No operation
   }
 }
 
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const queueManagerRef = useRef<QueueManager | null>(null);
+  const activePreviewMapRef = useRef<Map<string, string>>(new Map());
 
   // Keep a ref to the latest state so async conversions can validate generation.
   const stateRef = useRef(state);
@@ -59,9 +61,61 @@ export default function App() {
     stateRef.current = state;
   }, [state]);
 
-  // Local lock to avoid starting multiple conversions due to effect re-runs
-  // (e.g. React StrictMode, rapid re-renders).
-  const inFlightRef = useRef<string | null>(null);
+  useEffect(
+    () => () => {
+      activePreviewMapRef.current.forEach((url) => {
+        safeRevokeObjectURL(url);
+      });
+      activePreviewMapRef.current.clear();
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const manager = new QueueManager({
+      dispatch,
+      getState: () => stateRef.current,
+      createObjectURL: (file) => URL.createObjectURL(file),
+      revokeObjectURL: safeRevokeObjectURL,
+    });
+    queueManagerRef.current = manager;
+    manager.sync();
+    return () => {
+      manager.dispose();
+      queueManagerRef.current = null;
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    queueManagerRef.current?.sync();
+  }, [
+    state.items,
+    state.settings,
+    state.settingsRev,
+    state.runId,
+    state.pickupId,
+    state.deliveryId,
+  ]);
+
+  useEffect(() => {
+    const nextMap = new Map<string, string>();
+    state.items.forEach((item) => {
+      if (
+        (item.status === 'done' || item.status === 'warning') &&
+        item.out?.previewUrl
+      ) {
+        nextMap.set(item.id, item.out.previewUrl);
+      }
+    });
+    const prevMap = activePreviewMapRef.current;
+    prevMap.forEach((url, id) => {
+      const same = nextMap.get(id) === url;
+      if (!same) {
+        safeRevokeObjectURL(url);
+      }
+    });
+    activePreviewMapRef.current = nextMap;
+  }, [state.items]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -162,6 +216,7 @@ export default function App() {
   }, [presetOptions, state.settings.presetId, dispatch, showToast]);
 
   const onReset = useCallback(() => {
+    queueManagerRef.current?.cancelAllActive('reset');
     // Revoke all ObjectURLs we own (src/out previews).
     state.items.forEach((it) => {
       safeRevokeObjectURL(it.src.previewUrl);
@@ -185,13 +240,13 @@ export default function App() {
     async (files: File[]) => {
       const results = await Promise.allSettled(
         files.map(async (file) => {
-          const imageFile = await ImageFileService.load(file);
-          return { file, imageFile };
+          await ImageFileService.load(file);
+          return { file };
         }),
       );
       const ok = results
         .filter(
-          (r): r is PromiseFulfilledResult<{ file: File; imageFile: any }> =>
+          (r): r is PromiseFulfilledResult<{ file: File }> =>
             r.status === 'fulfilled',
         )
         .map((r) => r.value);
@@ -203,14 +258,13 @@ export default function App() {
         return;
       }
 
-      const newItems: JobItem[] = ok.map(({ file, imageFile }) => ({
+      const newItems: JobItem[] = ok.map(({ file }) => ({
         id: createId(),
         createdAt: Date.now(),
         isNew: true,
         status: 'queued',
         src: {
           file,
-          imageFile,
           previewUrl: URL.createObjectURL(file),
         },
       }));
@@ -285,6 +339,7 @@ export default function App() {
       if (item.status !== 'queued' && item.status !== 'processing') {
         return;
       }
+      safeRevokeObjectURL(item.out?.previewUrl);
       dispatch({ type: 'CANCEL_ITEM', id });
       showToast('Canceled.');
     },
@@ -317,12 +372,6 @@ export default function App() {
     },
     [dispatch, showToast, presetOptions],
   );
-
-  const isCanceledNow = (id: string) => {
-    const now = stateRef.current;
-    const it = now.items.find((x) => x.id === id);
-    return it?.status === 'canceled';
-  };
 
   const onShare = useCallback(
     async (id: string) => {
@@ -373,146 +422,35 @@ export default function App() {
     [shareSupported, showToast],
   );
 
-  // Automatic conversion queue (single concurrency).
-  // When there is no active processing item, automatically start the next queued item.
-  useEffect(() => {
-    const latest = stateRef.current;
-
-    if (inFlightRef.current !== null) {
-      return;
-    }
-    if (latest.activeItemId !== null) {
-      return;
-    }
-
-    const next = latest.items.find((it) => it.status === 'queued');
-    if (!next) {
-      return;
-    }
-
-    const startedRunId = latest.runId;
-    const startedSettingsRev = latest.settingsRev;
-    const startedQuality = latest.settings.jpegQuality;
-    const startedPickupId = latest.pickupId;
-    const startedDeliveryId = latest.deliveryId;
-    const startedPresetId = latest.settings.presetId;
-    const startedMetadataPolicyMode = latest.settings.metadataPolicyMode;
-
-    inFlightRef.current = next.id;
-    dispatch({ type: 'START_ITEM', id: next.id });
-
-    const run = async () => {
-      try {
-        const pipelineResult = await runProcessingPipeline({
-          sourceFile: next.src.file,
-          sourceImage: next.src.imageFile,
-          jpegQuality: startedQuality,
-          pickupId: startedPickupId,
-          deliveryId: startedDeliveryId,
-          presetId: startedPresetId,
-          metadataPolicyMode: startedMetadataPolicyMode,
-        });
-        const {
-          file: outFile,
-          sizeBefore,
-          sizeAfter,
-          reductionRatio,
-          metadata,
-          warningReason,
-        } = pipelineResult;
-
-        if (isCanceledNow(next.id)) {
-          dispatch({ type: 'END_ITEM', id: next.id });
-          return;
-        }
-
-        // Generation guard: only commit if the run/settings generation is still current.
-        const now1 = stateRef.current;
-        const isCurrentGen1 =
-          now1.runId === startedRunId &&
-          now1.settingsRev === startedSettingsRev;
-
-        if (!isCurrentGen1) {
-          const nowItem = now1.items.find((it) => it.id === next.id);
-          if (nowItem?.status === 'canceled') {
-            dispatch({ type: 'END_ITEM', id: next.id });
-          } else if (nowItem) {
-            // If the item still exists, put it back to the queue so it can be processed
-            // with the latest settings.
-            dispatch({ type: 'REQUEUE_ITEM', id: next.id });
-          }
-          return;
-        }
-
-        // Create ObjectURL only after we know it is likely to be accepted.
-        const previewUrl = URL.createObjectURL(outFile);
-
-        if (isCanceledNow(next.id)) {
-          safeRevokeObjectURL(previewUrl);
-          dispatch({ type: 'END_ITEM', id: next.id });
-          return;
-        }
-
-        // Re-check generation just before dispatch, to avoid races.
-        const now2 = stateRef.current;
-        const isCurrentGen2 =
-          now2.runId === startedRunId &&
-          now2.settingsRev === startedSettingsRev;
-        if (!isCurrentGen2) {
-          safeRevokeObjectURL(previewUrl);
-          const nowItem2 = now2.items.find((it) => it.id === next.id);
-          if (nowItem2?.status === 'canceled') {
-            dispatch({ type: 'END_ITEM', id: next.id });
-          } else if (nowItem2) {
-            dispatch({ type: 'REQUEUE_ITEM', id: next.id });
-          }
-          return;
-        }
-
-        dispatch({
-          type: 'FINISH_ITEM',
-          id: next.id,
-          out: {
-            file: outFile,
-            previewUrl,
-            sizeBefore,
-            sizeAfter,
-            reductionRatio,
-            metadata,
-          },
-          warningReason,
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Unknown error';
-
-        if (isCanceledNow(next.id)) {
-          dispatch({ type: 'END_ITEM', id: next.id });
-          return;
-        }
-
-        const now = stateRef.current;
-        const isCurrentGen =
-          now.runId === startedRunId && now.settingsRev === startedSettingsRev;
-        if (!isCurrentGen) {
-          const nowItem = now.items.find((it) => it.id === next.id);
-          if (nowItem?.status === 'canceled') {
-            dispatch({ type: 'END_ITEM', id: next.id });
-          } else if (nowItem) {
-            dispatch({ type: 'REQUEUE_ITEM', id: next.id });
-          }
-          return;
-        }
-
-        dispatch({ type: 'FAIL_ITEM', id: next.id, error: msg });
-      } finally {
-        inFlightRef.current = null;
-      }
-    };
-
-    run();
-  }, [state.items, state.activeItemId, state.runId, state.settingsRev]);
-
   const gridItems = selectGridItems(state.items);
+  const queueSummary = useMemo(() => {
+    const counts: Record<
+      'queued' | 'processing' | 'done' | 'warning' | 'error' | 'canceled',
+      number
+    > = {
+      queued: 0,
+      processing: 0,
+      done: 0,
+      warning: 0,
+      error: 0,
+      canceled: 0,
+    };
+    state.items.forEach((item) => {
+      counts[item.status as keyof typeof counts] += 1;
+    });
+    const total = state.items.length;
+    const completed = counts.done + counts.warning;
+    const percentComplete =
+      total > 0 ? Math.round((completed / total) * 100) : 0;
+    return {
+      total,
+      completed,
+      waiting: counts.queued,
+      processing: counts.processing,
+      errors: counts.error,
+      percentComplete,
+    };
+  }, [state.items]);
   const selectedPickup = getPickup(state.pickupId);
   const selectedDelivery = getDelivery(state.deliveryId);
   const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
@@ -563,6 +501,7 @@ export default function App() {
         onDownload={onDownload}
         onCancel={onCancel}
         onShare={shareSupported ? onShare : undefined}
+        queueSummary={queueSummary}
       />
 
       {toastMessage && <Toast message={toastMessage} />}

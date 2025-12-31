@@ -3,6 +3,7 @@ import type {
   ConvertSettings,
   JobCaptureSnapshot,
   JobItem,
+  JobErrorInfo,
 } from './jobTypes';
 import {
   DEFAULT_DELIVERY_ID,
@@ -20,7 +21,7 @@ export type AppAction =
       out: JobItem['out'];
       warningReason?: string;
     }
-  | { type: 'FAIL_ITEM'; id: string; error: string }
+  | { type: 'FAIL_ITEM'; id: string; error: JobErrorInfo }
   | { type: 'RETRY_ITEM'; id: string }
   | { type: 'CANCEL_ITEM'; id: string }
   | { type: 'REQUEUE_ITEM'; id: string }
@@ -46,7 +47,7 @@ export const initialState: AppState = {
     metadataPolicyMode: defaultPreset.metadataPolicyMode,
   },
   settingsRev: 1,
-  activeItemId: null,
+  activeItemIds: [],
   lastAddedIds: [],
   presetId: defaultPreset.id,
   pickupId: defaultPreset.pickupId ?? DEFAULT_PICKUP_ID,
@@ -86,7 +87,7 @@ export default function appReducer(
       };
       return {
         ...state,
-        activeItemId: action.id,
+        activeItemIds: [...state.activeItemIds, action.id],
         items: updateItem(state.items, action.id, (it) => ({
           ...it,
           status: 'processing',
@@ -102,7 +103,7 @@ export default function appReducer(
       const status = action.warningReason ? 'warning' : 'done';
       return {
         ...state,
-        activeItemId: null,
+        activeItemIds: state.activeItemIds.filter((id) => id !== action.id),
         items: updateItem(state.items, action.id, (it) => ({
           ...it,
           status,
@@ -116,7 +117,7 @@ export default function appReducer(
     case 'FAIL_ITEM': {
       return {
         ...state,
-        activeItemId: null,
+        activeItemIds: state.activeItemIds.filter((id) => id !== action.id),
         items: updateItem(state.items, action.id, (it) => ({
           ...it,
           status: 'error',
@@ -169,8 +170,7 @@ export default function appReducer(
       // and put the item back into the queue.
       return {
         ...state,
-        activeItemId:
-          state.activeItemId === action.id ? null : state.activeItemId,
+        activeItemIds: state.activeItemIds.filter((id) => id !== action.id),
         items: updateItem(state.items, action.id, (it) => ({
           ...it,
           status: 'queued',
@@ -185,8 +185,7 @@ export default function appReducer(
     case 'END_ITEM': {
       return {
         ...state,
-        activeItemId:
-          state.activeItemId === action.id ? null : state.activeItemId,
+        activeItemIds: state.activeItemIds.filter((id) => id !== action.id),
       };
     }
 

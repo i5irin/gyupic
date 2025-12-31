@@ -1,4 +1,3 @@
-import ImageFile from '../models/image-file';
 import type { DeliveryId } from '../domain/deliveryCatalog';
 import type { PickupId } from '../domain/pickupCatalog';
 import type { MetadataPolicyMode, PresetId } from '../domain/presets';
@@ -14,7 +13,6 @@ export type JobStatus =
 export type JobSource = {
   file: File;
   previewUrl: string;
-  imageFile: ImageFile;
 };
 
 export type ExifTimestampField =
@@ -48,6 +46,20 @@ export type JobMetadataInfo = {
   reason?: string;
 };
 
+export type JobErrorCode =
+  | 'load_source_failed'
+  | 'convert_failed'
+  | 'metadata_derive_failed'
+  | 'metadata_apply_failed'
+  | 'worker_unavailable'
+  | 'aborted'
+  | 'unknown';
+
+export type JobErrorInfo = {
+  code: JobErrorCode;
+  message: string;
+};
+
 export type JobOutput = {
   file: File;
   previewUrl: string;
@@ -67,7 +79,7 @@ export type JobItem = {
   status: JobStatus;
   src: JobSource;
   out?: JobOutput;
-  error?: string;
+  error?: JobErrorInfo;
   warningReason?: string;
   captured?: JobCaptureSnapshot;
 };
@@ -83,7 +95,7 @@ export type AppState = {
   runId: number;
   settings: ConvertSettings;
   settingsRev: number;
-  activeItemId: string | null;
+  activeItemIds: string[];
   lastAddedIds: string[];
   presetId: PresetId;
   pickupId: PickupId;

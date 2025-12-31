@@ -2,6 +2,15 @@ import { useEffect, useRef } from 'react';
 import styles from './ItemsGrid.module.css';
 import type { GridItem } from '../state/selectors';
 
+type QueueSummary = {
+  total: number;
+  completed: number;
+  waiting: number;
+  processing: number;
+  errors: number;
+  percentComplete: number;
+};
+
 type Props = {
   items: GridItem[];
   onRetry?: (id: string) => void;
@@ -9,6 +18,7 @@ type Props = {
   onCancel?: (id: string) => void;
   onShare?: (id: string) => void;
   scrollToId?: string;
+  queueSummary?: QueueSummary | null;
 };
 
 function statusLabel(status: GridItem['status']): string {
@@ -54,6 +64,7 @@ export default function ItemsGrid({
   onCancel,
   onShare,
   scrollToId,
+  queueSummary,
 }: Props) {
   const targetElRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,94 +79,131 @@ export default function ItemsGrid({
     el.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [scrollToId]);
 
-  return (
-    <div className={styles.grid}>
-      {items.map((it) => (
-        <div
-          key={it.id}
-          className={styles.tile}
-          ref={it.id === scrollToId ? targetElRef : undefined}
-        >
-          <div className={styles.badges}>
-            <span className={`${styles.badge} ${statusBadgeClass(it.status)}`}>
-              {statusLabel(it.status)}
-            </span>
-            {it.isNew && (
-              <span className={`${styles.badge} ${styles.badgeNew}`}>New</span>
-            )}
-          </div>
+  const hasQueueSummary = Boolean(queueSummary && queueSummary.total > 0);
 
-          <div className={styles.imageWrap}>
-            <img
-              className={styles.image}
-              src={it.previewUrl}
-              alt="preview"
-              loading="lazy"
+  return (
+    <div className={styles.container}>
+      {hasQueueSummary && queueSummary && (
+        <div
+          className={`${styles.queueSummary} ${
+            queueSummary.waiting > 0 ? styles.queueSummaryActive : ''
+          }`}
+        >
+          <div className={styles.queueSummaryHeader}>
+            <div className={styles.queueSummaryPrimary}>
+              {queueSummary.completed}/{queueSummary.total} done
+            </div>
+            <div className={styles.queueSummarySecondary}>
+              Processing {queueSummary.processing} · Waiting{' '}
+              {queueSummary.waiting}
+            </div>
+          </div>
+          <div className={styles.queueProgress}>
+            <div
+              className={styles.queueProgressFill}
+              style={{ width: `${queueSummary.percentComplete}%` }}
             />
           </div>
-
-          <div className={styles.meta}>
-            {it.status === 'error' && it.error && (
-              <div className={styles.error} title={it.error}>
-                {it.error}
-              </div>
-            )}
-            {it.status === 'warning' && it.warningReason && (
-              <div className={styles.warning} title={it.warningReason}>
-                {it.warningReason}
-              </div>
-            )}
-
-            {/* Action buttons for individual images, currently just a frame (handlers passed in) */}
-            {(it.actions.canRetry ||
-              it.actions.canDownload ||
-              it.actions.canCancel ||
-              (it.actions.canShare && Boolean(onShare))) && (
-              <div className={styles.actions}>
-                {it.actions.canRetry && (
-                  <button
-                    type="button"
-                    className={styles.actionButton}
-                    onClick={() => onRetry?.(it.id)}
-                    disabled={!onRetry}
-                  >
-                    Retry
-                  </button>
-                )}
-                {it.actions.canDownload && (
-                  <button
-                    type="button"
-                    className={styles.actionButton}
-                    onClick={() => onDownload?.(it.id)}
-                    disabled={!onDownload}
-                  >
-                    Download
-                  </button>
-                )}
-                {it.actions.canCancel && (
-                  <button
-                    type="button"
-                    className={styles.actionButton}
-                    onClick={() => onCancel?.(it.id)}
-                    disabled={!onCancel}
-                  >
-                    Cancel
-                  </button>
-                )}
-                {it.actions.canShare && onShare && (
-                  <button
-                    type="button"
-                    className={styles.actionButton}
-                    onClick={() => onShare(it.id)}
-                  >
-                    Share
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+          {queueSummary.waiting > 0 && (
+            <div className={styles.queueSummaryNote}>
+              Queue is moving—new files may wait a few seconds.
+            </div>
+          )}
         </div>
-      ))}
+      )}
+
+      <div className={styles.grid}>
+        {items.map((it) => (
+          <div
+            key={it.id}
+            className={styles.tile}
+            ref={it.id === scrollToId ? targetElRef : undefined}
+          >
+            <div className={styles.badges}>
+              <span
+                className={`${styles.badge} ${statusBadgeClass(it.status)}`}
+              >
+                {statusLabel(it.status)}
+              </span>
+              {it.isNew && (
+                <span className={`${styles.badge} ${styles.badgeNew}`}>
+                  New
+                </span>
+              )}
+            </div>
+
+            <div className={styles.imageWrap}>
+              <img
+                className={styles.image}
+                src={it.previewUrl}
+                alt="preview"
+                loading="lazy"
+              />
+            </div>
+
+            <div className={styles.meta}>
+              {it.status === 'error' && it.error && (
+                <div className={styles.error} title={it.error.message}>
+                  {it.error.message}
+                </div>
+              )}
+              {it.status === 'warning' && it.warningReason && (
+                <div className={styles.warning} title={it.warningReason}>
+                  {it.warningReason}
+                </div>
+              )}
+
+              {/* Action buttons for individual images, currently just a frame (handlers passed in) */}
+              {(it.actions.canRetry ||
+                it.actions.canDownload ||
+                it.actions.canCancel ||
+                (it.actions.canShare && Boolean(onShare))) && (
+                <div className={styles.actions}>
+                  {it.actions.canRetry && (
+                    <button
+                      type="button"
+                      className={styles.actionButton}
+                      onClick={() => onRetry?.(it.id)}
+                      disabled={!onRetry}
+                    >
+                      Retry
+                    </button>
+                  )}
+                  {it.actions.canDownload && (
+                    <button
+                      type="button"
+                      className={styles.actionButton}
+                      onClick={() => onDownload?.(it.id)}
+                      disabled={!onDownload}
+                    >
+                      Download
+                    </button>
+                  )}
+                  {it.actions.canCancel && (
+                    <button
+                      type="button"
+                      className={styles.actionButton}
+                      onClick={() => onCancel?.(it.id)}
+                      disabled={!onCancel}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  {it.actions.canShare && onShare && (
+                    <button
+                      type="button"
+                      className={styles.actionButton}
+                      onClick={() => onShare(it.id)}
+                    >
+                      Share
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -166,4 +214,5 @@ ItemsGrid.defaultProps = {
   onCancel: undefined,
   onShare: undefined,
   scrollToId: undefined,
+  queueSummary: null,
 };
