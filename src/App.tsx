@@ -443,6 +443,34 @@ export default function App() {
   );
 
   const gridItems = selectGridItems(state.items);
+  const queueSummary = useMemo(() => {
+    const counts: Record<
+      'queued' | 'processing' | 'done' | 'warning' | 'error' | 'canceled',
+      number
+    > = {
+      queued: 0,
+      processing: 0,
+      done: 0,
+      warning: 0,
+      error: 0,
+      canceled: 0,
+    };
+    state.items.forEach((item) => {
+      counts[item.status as keyof typeof counts] += 1;
+    });
+    const total = state.items.length;
+    const completed = counts.done + counts.warning;
+    const percentComplete =
+      total > 0 ? Math.round((completed / total) * 100) : 0;
+    return {
+      total,
+      completed,
+      waiting: counts.queued,
+      processing: counts.processing,
+      errors: counts.error,
+      percentComplete,
+    };
+  }, [state.items]);
   const selectedPickup = getPickup(state.pickupId);
   const selectedDelivery = getDelivery(state.deliveryId);
   const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
@@ -493,6 +521,7 @@ export default function App() {
         onDownload={onDownload}
         onCancel={onCancel}
         onShare={shareSupported ? onShare : undefined}
+        queueSummary={queueSummary}
       />
 
       {toastMessage && <Toast message={toastMessage} />}
