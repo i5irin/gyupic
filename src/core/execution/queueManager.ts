@@ -1,7 +1,16 @@
 import type { AppAction } from '../../state/appReducer';
-import type { AppState, JobItem, ConvertSettings } from '../../state/jobTypes';
+import type {
+  AppState,
+  JobItem,
+  ConvertSettings,
+  JobErrorInfo,
+} from '../../state/jobTypes';
 import type { ProcessingPipelineResult } from '../pipeline/processingPipeline';
 import { WorkerPool, type WorkerPoolOptions } from './workerPool';
+import {
+  ProcessingPipelineError,
+  ProcessingAbortedError,
+} from '../pipeline/processingErrors';
 
 type Dispatch = (action: AppAction) => void;
 
@@ -33,6 +42,8 @@ export default class QueueManager {
 
   private readonly running = new Map<string, JobRunContext>();
 
+  private readonly canceledIds = new Set<string>();
+
   private disposed = false;
 
   constructor(options: QueueManagerOptions) {
@@ -62,6 +73,20 @@ export default class QueueManager {
     this.disposed = true;
     this.running.clear();
     this.workerPool.terminate();
+    this.canceledIds.clear();
+  }
+
+  cancelAllActive(reason?: string): void {
+    if (this.disposed) {
+      return;
+    }
+    const ids = Array.from(this.running.keys());
+    ids.forEach((id) => {
+      this.canceledIds.add(id);
+      this.dispatch({ type: 'CANCEL_ITEM', id });
+    });
+    this.running.clear();
+    this.workerPool.cancelAll(reason);
   }
 
   sync(): void {
@@ -155,6 +180,7 @@ export default class QueueManager {
       },
       warningReason: result.warningReason,
     });
+    this.canceledIds.delete(itemId);
   }
 
   private handleFailure(
@@ -162,22 +188,36 @@ export default class QueueManager {
     context: JobRunContext,
     error: unknown,
   ): void {
+    if (error instanceof ProcessingAbortedError) {
+      this.dispatch({ type: 'END_ITEM', id: itemId });
+      this.canceledIds.delete(itemId);
+      return;
+    }
     if (this.isCanceled(itemId)) {
       this.dispatch({ type: 'END_ITEM', id: itemId });
+      this.canceledIds.delete(itemId);
       return;
     }
     if (!this.isCurrentGeneration(context)) {
       this.handleGenerationMismatch(itemId);
       return;
     }
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    this.dispatch({ type: 'FAIL_ITEM', id: itemId, error: message });
+    const jobError = this.createJobError(error);
+    this.dispatch({ type: 'FAIL_ITEM', id: itemId, error: jobError });
+    this.canceledIds.delete(itemId);
   }
 
   private isCanceled(itemId: string): boolean {
+    if (this.canceledIds.has(itemId)) {
+      return true;
+    }
     const state = this.getState();
     const item = state.items.find((it) => it.id === itemId);
-    return item?.status === 'canceled';
+    if (item?.status === 'canceled') {
+      this.canceledIds.add(itemId);
+      return true;
+    }
+    return false;
   }
 
   private isCurrentGeneration(context: JobRunContext): boolean {
@@ -198,5 +238,25 @@ export default class QueueManager {
       return;
     }
     this.dispatch({ type: 'REQUEUE_ITEM', id: itemId });
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  private createJobError(error: unknown): JobErrorInfo {
+    if (error instanceof ProcessingPipelineError) {
+      return {
+        code: error.code,
+        message: error.message,
+      };
+    }
+    if (error instanceof Error) {
+      return {
+        code: 'unknown',
+        message: error.message,
+      };
+    }
+    return {
+      code: 'unknown',
+      message: 'Unknown error',
+    };
   }
 }

@@ -6,6 +6,7 @@ import type {
   ProcessingPipelineParams,
   ProcessingPipelineResult,
 } from '../pipeline/processingPipeline';
+import { ProcessingAbortedError } from '../pipeline/processingErrors';
 
 type WorkerPoolTask = {
   params: ProcessingPipelineParams;
@@ -43,30 +44,17 @@ export class WorkerPool {
 
   private terminated = false;
 
-  private readonly capacity: number;
+  private capacity = 0;
+
+  private readonly desiredConcurrency: number;
 
   constructor(options?: WorkerPoolOptions) {
     const desired =
       options?.maxConcurrency !== undefined && options.maxConcurrency > 0
         ? Math.floor(options.maxConcurrency)
         : inferDefaultConcurrency();
-
-    const firstExecutor = createProcessingExecutor();
-    this.executors.push(firstExecutor);
-
-    if (firstExecutor.mode === 'worker') {
-      const target = Math.max(1, desired);
-      for (let i = 1; i < target; i += 1) {
-        const executor = createProcessingExecutor();
-        if (executor.mode !== 'worker') {
-          executor.terminate();
-          break;
-        }
-        this.executors.push(executor);
-      }
-    }
-
-    this.capacity = this.executors.length;
+    this.desiredConcurrency = desired;
+    this.setupExecutors();
   }
 
   getCapacity(): number {
@@ -105,6 +93,24 @@ export class WorkerPool {
     this.busyExecutors.clear();
   }
 
+  cancelAll(reason?: string): void {
+    if (this.terminated) {
+      return;
+    }
+    while (this.taskQueue.length > 0) {
+      const task = this.taskQueue.shift();
+      task?.reject(
+        new ProcessingAbortedError(
+          reason ?? 'WorkerPool cancelled pending jobs',
+        ),
+      );
+    }
+    this.executors.forEach((executor) => executor.terminate());
+    this.executors = [];
+    this.busyExecutors.clear();
+    this.setupExecutors();
+  }
+
   private drainQueue(): void {
     if (this.terminated) {
       return;
@@ -130,5 +136,28 @@ export class WorkerPool {
           this.drainQueue();
         });
     }
+  }
+
+  private setupExecutors(): void {
+    if (this.terminated) {
+      return;
+    }
+    this.executors = [];
+    const firstExecutor = createProcessingExecutor();
+    this.executors.push(firstExecutor);
+
+    if (firstExecutor.mode === 'worker') {
+      const target = Math.max(1, this.desiredConcurrency);
+      for (let i = 1; i < target; i += 1) {
+        const executor = createProcessingExecutor();
+        if (executor.mode !== 'worker') {
+          executor.terminate();
+          break;
+        }
+        this.executors.push(executor);
+      }
+    }
+
+    this.capacity = this.executors.length;
   }
 }

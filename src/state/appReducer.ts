@@ -3,6 +3,7 @@ import type {
   ConvertSettings,
   JobCaptureSnapshot,
   JobItem,
+  JobErrorInfo,
 } from './jobTypes';
 import {
   DEFAULT_DELIVERY_ID,
@@ -20,7 +21,7 @@ export type AppAction =
       out: JobItem['out'];
       warningReason?: string;
     }
-  | { type: 'FAIL_ITEM'; id: string; error: string }
+  | { type: 'FAIL_ITEM'; id: string; error: JobErrorInfo }
   | { type: 'RETRY_ITEM'; id: string }
   | { type: 'CANCEL_ITEM'; id: string }
   | { type: 'REQUEUE_ITEM'; id: string }

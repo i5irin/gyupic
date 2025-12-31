@@ -54,12 +54,23 @@ export default function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const queueManagerRef = useRef<QueueManager | null>(null);
+  const activePreviewMapRef = useRef<Map<string, string>>(new Map());
 
   // Keep a ref to the latest state so async conversions can validate generation.
   const stateRef = useRef(state);
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(
+    () => () => {
+      activePreviewMapRef.current.forEach((url) => {
+        safeRevokeObjectURL(url);
+      });
+      activePreviewMapRef.current.clear();
+    },
+    [],
+  );
 
   useEffect(() => {
     const manager = new QueueManager({
@@ -86,6 +97,26 @@ export default function App() {
     state.pickupId,
     state.deliveryId,
   ]);
+
+  useEffect(() => {
+    const nextMap = new Map<string, string>();
+    state.items.forEach((item) => {
+      if (
+        (item.status === 'done' || item.status === 'warning') &&
+        item.out?.previewUrl
+      ) {
+        nextMap.set(item.id, item.out.previewUrl);
+      }
+    });
+    const prevMap = activePreviewMapRef.current;
+    prevMap.forEach((url, id) => {
+      const same = nextMap.get(id) === url;
+      if (!same) {
+        safeRevokeObjectURL(url);
+      }
+    });
+    activePreviewMapRef.current = nextMap;
+  }, [state.items]);
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
@@ -186,6 +217,7 @@ export default function App() {
   }, [presetOptions, state.settings.presetId, dispatch, showToast]);
 
   const onReset = useCallback(() => {
+    queueManagerRef.current?.cancelAllActive('reset');
     // Revoke all ObjectURLs we own (src/out previews).
     state.items.forEach((it) => {
       safeRevokeObjectURL(it.src.previewUrl);
@@ -327,6 +359,7 @@ export default function App() {
       if (item.status !== 'queued' && item.status !== 'processing') {
         return;
       }
+      safeRevokeObjectURL(item.out?.previewUrl);
       dispatch({ type: 'CANCEL_ITEM', id });
       showToast('Canceled.');
     },

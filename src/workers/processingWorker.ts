@@ -5,6 +5,10 @@ import type {
   WorkerRequestMessage,
   WorkerResponseMessage,
 } from '../core/execution/processingMessages';
+import {
+  ProcessingPipelineError,
+  asProcessingPipelineError,
+} from '../core/pipeline/processingErrors';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -24,10 +28,15 @@ self.addEventListener(
       };
       self.postMessage(response);
     } catch (error) {
+      const processingError =
+        error instanceof ProcessingPipelineError
+          ? error
+          : asProcessingPipelineError(error, 'unknown', 'Unknown worker error');
       const response: WorkerResponseMessage = {
         type: 'error',
         jobId: data.jobId,
-        reason: error instanceof Error ? error.message : 'Unknown worker error',
+        reason: processingError.message,
+        errorCode: processingError.code,
       };
       self.postMessage(response);
     }

@@ -46,6 +46,20 @@ export type JobMetadataInfo = {
   reason?: string;
 };
 
+export type JobErrorCode =
+  | 'load_source_failed'
+  | 'convert_failed'
+  | 'metadata_derive_failed'
+  | 'metadata_apply_failed'
+  | 'worker_unavailable'
+  | 'aborted'
+  | 'unknown';
+
+export type JobErrorInfo = {
+  code: JobErrorCode;
+  message: string;
+};
+
 export type JobOutput = {
   file: File;
   previewUrl: string;
@@ -65,7 +79,7 @@ export type JobItem = {
   status: JobStatus;
   src: JobSource;
   out?: JobOutput;
-  error?: string;
+  error?: JobErrorInfo;
   warningReason?: string;
   captured?: JobCaptureSnapshot;
 };
