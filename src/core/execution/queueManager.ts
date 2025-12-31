@@ -11,6 +11,7 @@ import {
   ProcessingPipelineError,
   ProcessingAbortedError,
 } from '../pipeline/processingErrors';
+import { createPerfRecorder, type PerfRecorder } from '../../utils/perfTrace';
 
 type Dispatch = (action: AppAction) => void;
 
@@ -44,6 +45,8 @@ export default class QueueManager {
 
   private readonly canceledIds = new Set<string>();
 
+  private readonly jobRecorders = new Map<string, PerfRecorder>();
+
   private disposed = false;
 
   constructor(options: QueueManagerOptions) {
@@ -74,6 +77,10 @@ export default class QueueManager {
     this.running.clear();
     this.workerPool.terminate();
     this.canceledIds.clear();
+    this.jobRecorders.forEach((recorder, id) => {
+      recorder.commit({ itemId: id, status: 'disposed' });
+    });
+    this.jobRecorders.clear();
   }
 
   cancelAllActive(reason?: string): void {
@@ -84,6 +91,7 @@ export default class QueueManager {
     ids.forEach((id) => {
       this.canceledIds.add(id);
       this.dispatch({ type: 'CANCEL_ITEM', id });
+      this.finalizeJobRecorder(id, { status: 'cancelled' });
     });
     this.running.clear();
     this.workerPool.cancelAll(reason);
@@ -119,6 +127,11 @@ export default class QueueManager {
     };
 
     this.running.set(item.id, context);
+    this.recordQueueWait(item, context);
+    const jobRecorder = this.createJobRecorder(item, context);
+    if (jobRecorder) {
+      this.jobRecorders.set(item.id, jobRecorder);
+    }
     this.dispatch({ type: 'START_ITEM', id: item.id });
 
     const params = {
@@ -136,6 +149,7 @@ export default class QueueManager {
       .catch((error) => this.handleFailure(item.id, context, error))
       .finally(() => {
         this.running.delete(item.id);
+        this.jobRecorders.delete(item.id);
         this.sync();
       });
   }
@@ -147,6 +161,7 @@ export default class QueueManager {
   ): void {
     if (this.isCanceled(itemId)) {
       this.dispatch({ type: 'END_ITEM', id: itemId });
+      this.finalizeJobRecorder(itemId, { status: 'canceled-before-finish' });
       return;
     }
     if (!this.isCurrentGeneration(context)) {
@@ -159,6 +174,10 @@ export default class QueueManager {
     if (this.isCanceled(itemId)) {
       this.revokeObjectURL(previewUrl);
       this.dispatch({ type: 'END_ITEM', id: itemId });
+      this.finalizeJobRecorder(itemId, {
+        status: 'canceled-before-finish',
+        hadOutput: true,
+      });
       return;
     }
     if (!this.isCurrentGeneration(context)) {
@@ -181,6 +200,11 @@ export default class QueueManager {
       warningReason: result.warningReason,
     });
     this.canceledIds.delete(itemId);
+    this.finalizeJobRecorder(itemId, {
+      status: result.warningReason ? 'warning' : 'success',
+      sizeBefore: result.sizeBefore,
+      sizeAfter: result.sizeAfter,
+    });
   }
 
   private handleFailure(
@@ -191,11 +215,13 @@ export default class QueueManager {
     if (error instanceof ProcessingAbortedError) {
       this.dispatch({ type: 'END_ITEM', id: itemId });
       this.canceledIds.delete(itemId);
+      this.finalizeJobRecorder(itemId, { status: 'aborted' });
       return;
     }
     if (this.isCanceled(itemId)) {
       this.dispatch({ type: 'END_ITEM', id: itemId });
       this.canceledIds.delete(itemId);
+      this.finalizeJobRecorder(itemId, { status: 'canceled-during-failure' });
       return;
     }
     if (!this.isCurrentGeneration(context)) {
@@ -205,6 +231,10 @@ export default class QueueManager {
     const jobError = this.createJobError(error);
     this.dispatch({ type: 'FAIL_ITEM', id: itemId, error: jobError });
     this.canceledIds.delete(itemId);
+    this.finalizeJobRecorder(itemId, {
+      status: 'error',
+      errorCode: jobError.code,
+    });
   }
 
   private isCanceled(itemId: string): boolean {
@@ -235,9 +265,13 @@ export default class QueueManager {
     }
     if (item.status === 'canceled') {
       this.dispatch({ type: 'END_ITEM', id: itemId });
+      this.finalizeJobRecorder(itemId, {
+        status: 'generation-mismatch-canceled',
+      });
       return;
     }
     this.dispatch({ type: 'REQUEUE_ITEM', id: itemId });
+    this.finalizeJobRecorder(itemId, { status: 'generation-mismatch' });
   }
 
   // eslint-disable-next-line class-methods-use-this
@@ -258,5 +292,47 @@ export default class QueueManager {
       code: 'unknown',
       message: 'Unknown error',
     };
+  }
+
+  private recordQueueWait(item: JobItem, context: JobRunContext): void {
+    const recorder = createPerfRecorder({
+      scenario: 'queue.wait',
+      pickupId: context.pickupId,
+      deliveryId: context.deliveryId,
+    });
+    recorder?.commit({
+      itemId: item.id,
+      waitMs: Math.max(0, Date.now() - item.createdAt),
+      runId: context.runId,
+      settingsRev: context.settingsRev,
+      pendingBeforeStart: this.workerPool.getPendingCount(),
+    });
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  private createJobRecorder(
+    item: JobItem,
+    context: JobRunContext,
+  ): PerfRecorder | null {
+    return createPerfRecorder({
+      scenario: 'queue.job',
+      pickupId: context.pickupId,
+      deliveryId: context.deliveryId,
+      runId: context.runId,
+      settingsRev: context.settingsRev,
+      itemId: item.id,
+    });
+  }
+
+  private finalizeJobRecorder(
+    itemId: string,
+    extra: Record<string, unknown>,
+  ): void {
+    const recorder = this.jobRecorders.get(itemId);
+    if (!recorder) {
+      return;
+    }
+    recorder.commit({ itemId, ...extra });
+    this.jobRecorders.delete(itemId);
   }
 }
