@@ -7,30 +7,16 @@ import type {
   ProcessingPipelineResult,
 } from '../pipeline/processingPipeline';
 import { ProcessingAbortedError } from '../pipeline/processingErrors';
-import { createPerfRecorder, type PerfRecorder } from '../../utils/perfTrace';
 
 type WorkerPoolTask = {
   params: ProcessingPipelineParams;
   resolve: (value: ProcessingPipelineResult) => void;
   reject: (reason: unknown) => void;
-  enqueuedAt: number;
-  pendingBeforeEnqueue: number;
-  recorder: PerfRecorder | null;
 };
 
 export type WorkerPoolOptions = {
   maxConcurrency?: number;
 };
-
-function nowMs(): number {
-  if (
-    typeof performance !== 'undefined' &&
-    typeof performance.now === 'function'
-  ) {
-    return performance.now();
-  }
-  return Date.now();
-}
 
 function inferDefaultConcurrency(): number {
   if (typeof navigator === 'undefined') {
@@ -79,28 +65,15 @@ export class WorkerPool {
     return this.busyExecutors.size;
   }
 
-  getPendingCount(): number {
-    return this.taskQueue.length;
-  }
-
   run(params: ProcessingPipelineParams): Promise<ProcessingPipelineResult> {
     if (this.terminated) {
       return Promise.reject(new Error('WorkerPool is terminated'));
     }
     return new Promise<ProcessingPipelineResult>((resolve, reject) => {
-      const recorder = createPerfRecorder({
-        scenario: 'worker.acquire',
-        pickupId: params.pickupId,
-        deliveryId: params.deliveryId,
-        presetId: params.presetId,
-      });
       this.taskQueue.push({
         params,
         resolve,
         reject,
-        recorder,
-        enqueuedAt: nowMs(),
-        pendingBeforeEnqueue: this.taskQueue.length,
       });
       this.drainQueue();
     });
@@ -113,12 +86,7 @@ export class WorkerPool {
     this.terminated = true;
     while (this.taskQueue.length > 0) {
       const task = this.taskQueue.shift();
-      if (task) {
-        this.resolveAcquireRecorder(task, {
-          status: 'terminated-before-run',
-        });
-        task.reject(new Error('WorkerPool is terminated'));
-      }
+      task?.reject(new Error('WorkerPool is terminated'));
     }
     this.executors.forEach((executor) => executor.terminate());
     this.executors = [];
@@ -132,9 +100,6 @@ export class WorkerPool {
     while (this.taskQueue.length > 0) {
       const task = this.taskQueue.shift();
       if (task) {
-        this.resolveAcquireRecorder(task, {
-          status: 'cancelled-before-run',
-        });
         task.reject(
           new ProcessingAbortedError(
             reason ?? 'WorkerPool cancelled pending jobs',
@@ -165,11 +130,6 @@ export class WorkerPool {
       }
       this.busyExecutors.add(idleIndex);
       const executor = this.executors[idleIndex];
-      this.resolveAcquireRecorder(task, {
-        status: 'acquired',
-        executorMode: executor.mode,
-        queueSizeAfterDequeue: this.taskQueue.length,
-      });
       executor
         .run(task.params)
         .then(task.resolve, task.reject)
@@ -201,22 +161,5 @@ export class WorkerPool {
     }
 
     this.capacity = this.executors.length;
-  }
-
-  // eslint-disable-next-line class-methods-use-this
-  private resolveAcquireRecorder(
-    task: WorkerPoolTask | undefined,
-    extra: Record<string, unknown>,
-  ): void {
-    if (!task?.recorder) {
-      return;
-    }
-    task.recorder.commit({
-      waitMs: Math.max(0, nowMs() - task.enqueuedAt),
-      pendingBeforeEnqueue: task.pendingBeforeEnqueue,
-      ...extra,
-    });
-    // eslint-disable-next-line no-param-reassign
-    task.recorder = null;
   }
 }
