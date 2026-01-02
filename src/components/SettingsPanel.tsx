@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { OutputFormat } from '../domain/presets';
+import type { FilenameSource, OutputFormat } from '../domain/presets';
 import styles from './SettingsPanel.module.css';
 
 type DeliveryInfo = {
@@ -21,6 +21,7 @@ type PresetOption = {
 type Props = {
   currentJpegQuality: number;
   currentOutputFormat: OutputFormat;
+  currentFilenameSource: FilenameSource;
   presetId: string;
   presetOptions: PresetOption[];
   onChangePreset: (id: string) => void;
@@ -29,12 +30,14 @@ type Props = {
   onApply: (settings: {
     jpegQuality: number;
     outputFormat: OutputFormat;
+    filenameSource: FilenameSource;
   }) => void;
 };
 
 export default function SettingsPanel({
   currentJpegQuality,
   currentOutputFormat,
+  currentFilenameSource,
   presetId,
   presetOptions,
   onChangePreset,
@@ -58,6 +61,8 @@ export default function SettingsPanel({
   );
   const [draftOutputFormat, setDraftOutputFormat] =
     useState<OutputFormat>(currentOutputFormat);
+  const [draftFilenameSource, setDraftFilenameSource] =
+    useState<FilenameSource>(currentFilenameSource);
 
   useEffect(() => {
     setDraftQuality(normalize(currentJpegQuality));
@@ -67,11 +72,23 @@ export default function SettingsPanel({
     setDraftOutputFormat(currentOutputFormat);
   }, [currentOutputFormat]);
 
+  useEffect(() => {
+    setDraftFilenameSource(currentFilenameSource);
+  }, [currentFilenameSource]);
+
   const isDirty = useMemo(
     () =>
       normalize(draftQuality) !== normalize(currentJpegQuality) ||
-      draftOutputFormat !== currentOutputFormat,
-    [draftQuality, currentJpegQuality, draftOutputFormat, currentOutputFormat],
+      draftOutputFormat !== currentOutputFormat ||
+      draftFilenameSource !== currentFilenameSource,
+    [
+      draftQuality,
+      currentJpegQuality,
+      draftOutputFormat,
+      currentOutputFormat,
+      draftFilenameSource,
+      currentFilenameSource,
+    ],
   );
 
   const selectedPreset = useMemo(
@@ -108,6 +125,12 @@ export default function SettingsPanel({
     { value: 'png', label: 'PNG' },
     { value: 'webp', label: 'WebP' },
     { value: 'gif', label: 'GIF' },
+  ];
+
+  const filenameSourceOptions: { value: FilenameSource; label: string }[] = [
+    { value: 'original', label: 'Keep original name' },
+    { value: 'exif', label: 'Exif capture time' },
+    { value: 'file-last-modified', label: 'File modified time' },
   ];
 
   return (
@@ -242,6 +265,30 @@ export default function SettingsPanel({
           </label>
         </div>
 
+        <div className={styles.settingsPanelRow}>
+          <label className={styles.settingsPanelLabel} htmlFor="filenameSource">
+            Filename Timestamp
+            <select
+              id="filenameSource"
+              className={styles.settingsPanelSelect}
+              value={draftFilenameSource}
+              onChange={(e) =>
+                setDraftFilenameSource(e.currentTarget.value as FilenameSource)
+              }
+            >
+              {filenameSourceOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className={styles.settingsPanelNote}>
+            Filenames adopt the selected timestamp; failures fall back to the
+            original name with a warning.
+          </div>
+        </div>
+
         <div className={styles.settingsPanelActions}>
           <button
             type="button"
@@ -250,6 +297,7 @@ export default function SettingsPanel({
               onApply({
                 jpegQuality: normalize(draftQuality),
                 outputFormat: draftOutputFormat,
+                filenameSource: draftFilenameSource,
               })
             }
             disabled={!isDirty}

@@ -51,6 +51,8 @@ type ApplyOptions = {
   derived: DerivedTimestamp;
   deliveryId?: DeliveryId;
   metadataPolicyMode?: MetadataPolicyMode;
+  fileNameOverride?: string;
+  lastModifiedOverride?: number;
 };
 
 export type ApplyResult = {
@@ -191,7 +193,10 @@ function evaluateStatus(
   return { status: 'guaranteed' };
 }
 
-function parseExifDateTime(value: string, offset?: string): number | null {
+export function parseExifDateTime(
+  value: string,
+  offset?: string,
+): number | null {
   const match = /^(\d{4}):(\d{2}):(\d{2}) (\d{2}):(\d{2}):(\d{2})$/u.exec(
     value,
   );
@@ -308,6 +313,8 @@ export async function applyTimestamp({
   derived,
   deliveryId,
   metadataPolicyMode,
+  fileNameOverride,
+  lastModifiedOverride,
 }: ApplyOptions): Promise<ApplyResult> {
   const effectiveDeliveryId = deliveryId ?? DEFAULT_DELIVERY_ID;
   const policyMode = metadataPolicyMode ?? DEFAULT_METADATA_POLICY_MODE;
@@ -365,14 +372,26 @@ export async function applyTimestamp({
       type: file.type || JPEG_MIME,
     };
 
-    if (rewriteFileTimestamp) {
+    const normalizedOverrideTimestamp =
+      typeof lastModifiedOverride === 'number' &&
+      Number.isFinite(lastModifiedOverride)
+        ? Math.trunc(lastModifiedOverride)
+        : undefined;
+    if (typeof normalizedOverrideTimestamp === 'number') {
+      fileOptions.lastModified = normalizedOverrideTimestamp;
+    } else if (rewriteFileTimestamp) {
       const lastModified = resolveLastModifiedFromDerived(derived);
       if (typeof lastModified === 'number' && Number.isFinite(lastModified)) {
         fileOptions.lastModified = lastModified;
       }
     }
 
-    const nextFile = new File([blob], file.name || 'image.jpg', fileOptions);
+    const targetFileName =
+      typeof fileNameOverride === 'string' && fileNameOverride.trim().length > 0
+        ? fileNameOverride
+        : file.name || 'image.jpg';
+
+    const nextFile = new File([blob], targetFileName, fileOptions);
 
     const success =
       derived.kind === 'exif' || (derived.kind === 'file' && allowFileFallback);

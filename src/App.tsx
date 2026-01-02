@@ -25,6 +25,7 @@ import {
   getPreset,
   type PresetId,
   type OutputFormat,
+  type FilenameSource,
 } from './domain/presets';
 import QueueManager from './core/execution/queueManager';
 
@@ -352,11 +353,27 @@ export default function App() {
   );
 
   const onApplySettings = useCallback(
-    (nextSettings: { jpegQuality: number; outputFormat: OutputFormat }) => {
+    (nextSettings: {
+      jpegQuality: number;
+      outputFormat: OutputFormat;
+      filenameSource: FilenameSource;
+    }) => {
       dispatch({ type: 'SET_SETTINGS', settings: nextSettings });
       const qualityPct = Math.round(nextSettings.jpegQuality * 100);
       const formatLabel = nextSettings.outputFormat.toUpperCase();
-      showToast(`Settings applied (${qualityPct}% · ${formatLabel})`);
+      const filenameLabel = (() => {
+        switch (nextSettings.filenameSource) {
+          case 'exif':
+            return 'Exif';
+          case 'file-last-modified':
+            return 'File time';
+          default:
+            return 'Original';
+        }
+      })();
+      showToast(
+        `Settings applied (${qualityPct}% · ${formatLabel} · ${filenameLabel})`,
+      );
     },
     [dispatch, showToast],
   );
@@ -479,6 +496,7 @@ export default function App() {
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
         currentOutputFormat={state.settings.outputFormat}
+        currentFilenameSource={state.settings.filenameSource}
         presetId={state.settings.presetId}
         presetOptions={presetOptions}
         onChangePreset={onChangePreset}
