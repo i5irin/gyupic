@@ -1,56 +1,17 @@
-import { RefObject, useMemo } from 'react';
-import type { PickupId } from '../domain/pickupCatalog';
+import { RefObject } from 'react';
+import type { InputBehavior } from '../domain/presets';
 
 type Props = {
   inputRef: RefObject<HTMLInputElement | null>;
   onFilesSelected: (files: File[]) => void | Promise<void>;
-  pickupId: PickupId;
-};
-
-type PickupBehavior = {
-  label: string;
-  note: string;
-  accept: string;
-  multiple: boolean;
-};
-
-const PICKUP_BEHAVIORS: Record<PickupId, PickupBehavior> = {
-  'pickup.photos': {
-    label: 'Add from Photos',
-    note: 'Use the iOS photo picker to select screenshots or camera roll items.',
-    accept: 'image/*',
-    multiple: true,
-  },
-  'pickup.files': {
-    label: 'Add from Files / iCloud Drive',
-    note: 'Use the Files dialog or drag & drop images. HEIC/JPEG/PNG are accepted (experimental).',
-    accept: 'image/*,.heic,.jpeg,.jpg,.png',
-    multiple: true,
-  },
-  'pickup.androidPicker': {
-    label: 'Add from Android picker',
-    note: 'Use the Android system picker or Share Target (experimental).',
-    accept: 'image/*',
-    multiple: true,
-  },
-  'pickup.desktop': {
-    label: 'Add from Finder / Explorer',
-    note: 'Drag & drop or select images from your computer (experimental).',
-    accept: 'image/*',
-    multiple: true,
-  },
+  behavior: InputBehavior;
 };
 
 export default function FilePicker({
   inputRef,
   onFilesSelected,
-  pickupId,
+  behavior,
 }: Props) {
-  const behavior = useMemo(
-    () => PICKUP_BEHAVIORS[pickupId] ?? PICKUP_BEHAVIORS['pickup.photos'],
-    [pickupId],
-  );
-
   return (
     <div>
       <label htmlFor="files">

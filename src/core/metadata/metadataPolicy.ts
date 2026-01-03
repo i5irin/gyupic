@@ -1,14 +1,9 @@
 import exifr from 'exifr';
 import piexif from 'piexifjs';
 import type {
-  DeliveryDefinition,
-  DeliveryId,
-} from '../../domain/deliveryCatalog';
-import {
-  DELIVERY_CATALOG,
-  DEFAULT_DELIVERY_ID,
-} from '../../domain/deliveryCatalog';
-import type { MetadataPolicyMode } from '../../domain/presets';
+  OrderingRequirement,
+  TimestampWriteMode,
+} from '../../domain/presets';
 import type {
   DerivedTimestamp,
   MetadataGuaranteeStatus,
@@ -17,12 +12,12 @@ import type {
 const JPEG_MIME = 'image/jpeg';
 
 const EXIF_TAGS = {
-  DateTime: 0x0132, // 306
-  DateTimeOriginal: 0x9003, // 36867
-  DateTimeDigitized: 0x9004, // 36868
-  OffsetTime: 0x9010, // 36880
-  OffsetTimeOriginal: 0x9011, // 36881
-  OffsetTimeDigitized: 0x9012, // 36882
+  DateTime: 0x0132,
+  DateTimeOriginal: 0x9003,
+  DateTimeDigitized: 0x9004,
+  OffsetTime: 0x9010,
+  OffsetTimeOriginal: 0x9011,
+  OffsetTimeDigitized: 0x9012,
 };
 
 const EXIF_TIMESTAMP_FIELDS = [
@@ -49,8 +44,10 @@ type DeriveOptions = {
 type ApplyOptions = {
   file: File;
   derived: DerivedTimestamp;
-  deliveryId?: DeliveryId;
-  metadataPolicyMode?: MetadataPolicyMode;
+  ordering: OrderingRequirement;
+  timestampWriteMode: TimestampWriteMode;
+  rewriteExif: boolean;
+  injectFromEditedTime: boolean;
   fileNameOverride?: string;
   lastModifiedOverride?: number;
 };
@@ -77,7 +74,6 @@ function isExifWritable(file: File): boolean {
   return isExifCapable(file);
 }
 
-// NOTE: The numbers and Dates returned by exifr represent UTC timestamps with OffsetTime already applied.
 function formatExifLocalDate(date: Date): string {
   const pad = (value: number) => value.toString().padStart(2, '0');
   return `${date.getFullYear()}:${pad(date.getMonth() + 1)}:${pad(
@@ -149,47 +145,37 @@ function dataURLToBlob(dataUrl: string, mimeType: string): Blob {
   return new Blob([bytes], { type });
 }
 
-function evaluateStatus(
-  success: boolean,
-  delivery: DeliveryDefinition | undefined,
-  failureReason?: string,
-): { status: MetadataGuaranteeStatus; warningReason?: string } {
+function evaluateStatus(options: {
+  success: boolean;
+  ordering: OrderingRequirement;
+  fallbackUsed?: boolean;
+  failureReason?: string;
+  fallbackReason?: string;
+}): { status: MetadataGuaranteeStatus; warningReason?: string } {
+  const { success, ordering, fallbackUsed, failureReason, fallbackReason } =
+    options;
   if (!success) {
     return {
       status: 'warning',
       warningReason:
-        failureReason ||
-        delivery?.warningCondition ||
-        'Metadata guarantee unavailable',
+        failureReason || 'Ordering requirement could not be satisfied.',
     };
   }
-
-  if (!delivery) {
-    return {
-      status: 'warning',
-      warningReason: 'Unknown delivery path',
-    };
-  }
-
-  if (delivery.guarantee === 'best-effort') {
+  if (fallbackUsed) {
     return {
       status: 'best-effort',
       warningReason:
-        delivery.bestEffortMessage ||
-        'This delivery path is best-effort and may vary.',
+        fallbackReason ||
+        'Best-effort: used edited/file timestamp because Exif capture time was unavailable.',
     };
   }
-
-  if (
-    delivery.category === 'experimental' ||
-    delivery.guarantee === 'unverified'
-  ) {
+  if (ordering.sortingAxis === 'filename') {
     return {
-      status: 'skipped',
-      warningReason: `${delivery.title} is not verified yet`,
+      status: 'best-effort',
+      warningReason:
+        'Ordering is enforced via filename sorting; verify in the destination app.',
     };
   }
-
   return { status: 'guaranteed' };
 }
 
@@ -306,122 +292,146 @@ export async function deriveTimestamp({
   return { kind: 'unavailable' };
 }
 
-const DEFAULT_METADATA_POLICY_MODE: MetadataPolicyMode = 'strict';
-
 export async function applyTimestamp({
   file,
   derived,
-  deliveryId,
-  metadataPolicyMode,
+  ordering,
+  timestampWriteMode,
+  rewriteExif,
+  injectFromEditedTime,
   fileNameOverride,
   lastModifiedOverride,
 }: ApplyOptions): Promise<ApplyResult> {
-  const effectiveDeliveryId = deliveryId ?? DEFAULT_DELIVERY_ID;
-  const policyMode = metadataPolicyMode ?? DEFAULT_METADATA_POLICY_MODE;
-  const delivery = DELIVERY_CATALOG[effectiveDeliveryId];
-  const sortingAxis = delivery?.sortingAxis ?? 'exif';
-  const allowFileFallback =
-    sortingAxis === 'file' || policyMode === 'fallback-filetime';
-  const rewriteFileTimestamp =
-    sortingAxis === 'file' || policyMode === 'fallback-filetime';
-  if (!isExifWritable(file)) {
+  const needsExif = ordering.needsExif ?? ordering.sortingAxis === 'exif';
+  const allowFallback =
+    ordering.allowEditedTimeFallback ?? injectFromEditedTime;
+  const derivedHasTime = derived.kind !== 'unavailable';
+  const derivedIsExif = derived.kind === 'exif';
+  const fallbackUsed =
+    needsExif && !derivedIsExif && derived.kind === 'file' && allowFallback;
+
+  if (needsExif && !derivedHasTime && !allowFallback) {
     return {
       file,
-      ...evaluateStatus(false, delivery, 'File type does not support Exif'),
+      ...evaluateStatus({
+        success: false,
+        ordering,
+        failureReason: 'Timestamp unavailable.',
+      }),
     };
   }
 
-  if (derived.kind === 'unavailable') {
-    return {
-      file,
-      ...evaluateStatus(false, delivery, 'Timestamp unavailable'),
-    };
-  }
+  let workingFile = file;
 
-  try {
-    const dataUrl = await blobToDataURL(file);
-    const stripped = piexif.remove(dataUrl);
-    const payload = {
-      '0th': {} as Record<number, string>,
-      Exif: {} as Record<number, string>,
-      '1st': {} as Record<number, string>,
-      thumbnail: undefined,
-    };
-
+  if (rewriteExif && derivedHasTime && isExifWritable(file)) {
     const dateStrings = buildExifDateStrings(derived);
     if (!dateStrings) {
       return {
         file,
-        ...evaluateStatus(false, delivery, 'Unsupported timestamp format'),
+        ...evaluateStatus({
+          success: false,
+          ordering,
+          failureReason: 'Unsupported timestamp format.',
+        }),
       };
     }
 
-    payload.Exif[EXIF_TAGS.DateTimeOriginal] = dateStrings.primary;
-    payload.Exif[EXIF_TAGS.DateTimeDigitized] = dateStrings.secondary;
-    payload['0th'][EXIF_TAGS.DateTime] = dateStrings.primary;
-    if (dateStrings.offset) {
-      payload.Exif[EXIF_TAGS.OffsetTimeOriginal] = dateStrings.offset;
-      payload.Exif[EXIF_TAGS.OffsetTimeDigitized] = dateStrings.offset;
-      payload['0th'][EXIF_TAGS.OffsetTime] = dateStrings.offset;
-    }
+    try {
+      const dataUrl = await blobToDataURL(file);
+      const stripped = piexif.remove(dataUrl);
+      const payload = {
+        '0th': {} as Record<number, string>,
+        Exif: {} as Record<number, string>,
+        '1st': {} as Record<number, string>,
+        thumbnail: undefined,
+      };
 
-    const exifBytes = piexif.dump(payload);
-    const injected = piexif.insert(exifBytes, stripped);
-    const blob = dataURLToBlob(injected, file.type || JPEG_MIME);
-    const fileOptions: FilePropertyBag = {
-      type: file.type || JPEG_MIME,
-    };
-
-    const normalizedOverrideTimestamp =
-      typeof lastModifiedOverride === 'number' &&
-      Number.isFinite(lastModifiedOverride)
-        ? Math.trunc(lastModifiedOverride)
-        : undefined;
-    if (typeof normalizedOverrideTimestamp === 'number') {
-      fileOptions.lastModified = normalizedOverrideTimestamp;
-    } else if (rewriteFileTimestamp) {
-      const lastModified = resolveLastModifiedFromDerived(derived);
-      if (typeof lastModified === 'number' && Number.isFinite(lastModified)) {
-        fileOptions.lastModified = lastModified;
+      payload.Exif[EXIF_TAGS.DateTimeOriginal] = dateStrings.primary;
+      payload.Exif[EXIF_TAGS.DateTimeDigitized] = dateStrings.secondary;
+      payload['0th'][EXIF_TAGS.DateTime] = dateStrings.primary;
+      if (dateStrings.offset) {
+        payload.Exif[EXIF_TAGS.OffsetTimeOriginal] = dateStrings.offset;
+        payload.Exif[EXIF_TAGS.OffsetTimeDigitized] = dateStrings.offset;
+        payload['0th'][EXIF_TAGS.OffsetTime] = dateStrings.offset;
       }
-    }
 
-    const targetFileName =
-      typeof fileNameOverride === 'string' && fileNameOverride.trim().length > 0
-        ? fileNameOverride
-        : file.name || 'image.jpg';
+      const exifBytes = piexif.dump(payload);
+      const injected = piexif.insert(exifBytes, stripped);
+      const blob = dataURLToBlob(injected, file.type || JPEG_MIME);
+      const fileOptions: FilePropertyBag = {
+        type: file.type || JPEG_MIME,
+      };
 
-    const nextFile = new File([blob], targetFileName, fileOptions);
+      const normalizedOverrideTimestamp =
+        typeof lastModifiedOverride === 'number' &&
+        Number.isFinite(lastModifiedOverride)
+          ? Math.trunc(lastModifiedOverride)
+          : undefined;
+      if (typeof normalizedOverrideTimestamp === 'number') {
+        fileOptions.lastModified = normalizedOverrideTimestamp;
+      } else if (timestampWriteMode !== 'off') {
+        const lastModified = resolveLastModifiedFromDerived(derived);
+        if (typeof lastModified === 'number' && Number.isFinite(lastModified)) {
+          fileOptions.lastModified = Math.trunc(lastModified);
+        }
+      }
 
-    const success =
-      derived.kind === 'exif' || (derived.kind === 'file' && allowFileFallback);
-    const fallbackReason =
-      !success && derived.kind === 'file'
-        ? 'Exif timestamp missing (file metadata only)'
-        : undefined;
+      const targetFileName =
+        typeof fileNameOverride === 'string' &&
+        fileNameOverride.trim().length > 0
+          ? fileNameOverride
+          : file.name || 'image.jpg';
 
-    let statusResult = evaluateStatus(success, delivery, fallbackReason);
-    if (
-      policyMode === 'strict-best-effort' &&
-      derived.kind === 'file' &&
-      !success
-    ) {
-      statusResult = {
-        status: 'best-effort',
-        warningReason:
-          fallbackReason ||
-          'Timestamp derived from file metadata (best-effort)',
+      workingFile = new File([blob], targetFileName, fileOptions);
+    } catch (error) {
+      return {
+        file,
+        ...evaluateStatus({
+          success: false,
+          ordering,
+          failureReason: 'Failed to inject Exif timestamp',
+        }),
       };
     }
-
-    return {
-      file: nextFile,
-      ...statusResult,
-    };
-  } catch (error) {
+  } else if (
+    rewriteExif &&
+    !isExifWritable(file) &&
+    needsExif &&
+    !fallbackUsed
+  ) {
     return {
       file,
-      ...evaluateStatus(false, delivery, 'Failed to inject Exif timestamp'),
+      ...evaluateStatus({
+        success: false,
+        ordering,
+        failureReason: 'File type does not support Exif metadata.',
+      }),
     };
   }
+
+  if (
+    typeof lastModifiedOverride === 'number' &&
+    Number.isFinite(lastModifiedOverride) &&
+    workingFile.lastModified !== Math.trunc(lastModifiedOverride)
+  ) {
+    workingFile = new File([workingFile], workingFile.name, {
+      type: workingFile.type,
+      lastModified: Math.trunc(lastModifiedOverride),
+    });
+  }
+
+  const success = needsExif ? derivedIsExif || fallbackUsed : true;
+  const fallbackReason = fallbackUsed
+    ? 'Best-effort: timestamp derived from edited/lastModified metadata.'
+    : undefined;
+
+  return {
+    file: workingFile,
+    ...evaluateStatus({
+      success,
+      ordering,
+      fallbackUsed,
+      fallbackReason,
+    }),
+  };
 }
