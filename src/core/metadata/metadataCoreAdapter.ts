@@ -23,6 +23,7 @@ import { getMetadataCore } from './wasmBridge';
 type DeriveOptions = {
   file: File;
   captureTimeEnabled: boolean;
+  timestampWriteMode: TimestampWriteMode;
 };
 
 type ApplyOptions = {
@@ -151,6 +152,7 @@ function mapDeriveResult(
 function buildDeriveContext(options: DeriveOptions): MetadataDeriveContext {
   return {
     captureTimeEnabled: options.captureTimeEnabled,
+    timestampWriteMode: options.timestampWriteMode,
     lastModifiedMs: Number.isFinite(options.file.lastModified)
       ? options.file.lastModified
       : undefined,
@@ -286,9 +288,6 @@ function evaluateGuaranteeStatus(options: {
 async function tryApplyWithWasm(
   options: ApplyOptions,
 ): Promise<MetadataCoreApplyResult | null> {
-  if (!options.session.captureTime && options.session.captureTimeEnabled) {
-    return null;
-  }
   try {
     const bindings = await getMetadataCore();
     const encodedBytes = await fileToUint8Array(options.file);
@@ -340,6 +339,7 @@ export async function applyMetadataWithMetadataCore(
 
 type MetadataDeriveContext = {
   captureTimeEnabled: boolean;
+  timestampWriteMode: TimestampWriteMode;
   lastModifiedMs?: number;
 };
 

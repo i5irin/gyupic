@@ -97,6 +97,8 @@ struct DeriveMetadataContext {
     capture_time_enabled: bool,
     #[serde(default)]
     last_modified_ms: Option<f64>,
+    #[serde(default)]
+    timestamp_write_mode: TimestampWriteMode,
 }
 
 impl Default for DeriveMetadataContext {
@@ -104,6 +106,7 @@ impl Default for DeriveMetadataContext {
         Self {
             capture_time_enabled: true,
             last_modified_ms: None,
+            timestamp_write_mode: TimestampWriteMode::CopyExif,
         }
     }
 }
@@ -149,7 +152,7 @@ impl OrderingRequirement {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "kebab-case")]
 enum TimestampWriteMode {
     #[serde(rename = "off")]
@@ -158,6 +161,12 @@ enum TimestampWriteMode {
     CopyExif,
     #[serde(rename = "from-file-modified")]
     FromFileModified,
+}
+
+impl Default for TimestampWriteMode {
+    fn default() -> Self {
+        TimestampWriteMode::CopyExif
+    }
 }
 
 #[derive(Deserialize)]
@@ -198,22 +207,11 @@ pub fn derive_metadata(input_bytes: Uint8Array, context: JsValue) -> Result<JsVa
 
     let mut warnings = Vec::new();
     let capture_time = if ctx.capture_time_enabled {
-        match parse_exif_capture_time(&buffer) {
-            Ok(Some(info)) => Some(info),
-            Ok(None) => match ctx
-                .last_modified_ms
-                .and_then(capture_time_from_last_modified)
-            {
-                Some(info) => Some(info),
-                None => {
-                    warnings.push(warning_missing_capture_time());
-                    None
-                }
-            },
-            Err(warning) => {
-                warnings.push(warning);
-                None
+        match ctx.timestamp_write_mode {
+            TimestampWriteMode::FromFileModified => {
+                derive_capture_time_from_mtime(ctx.last_modified_ms, &mut warnings)
             }
+            _ => derive_capture_time_from_exif(&buffer, &mut warnings),
         }
     } else {
         None
@@ -255,7 +253,14 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
     let capture_info = match capture {
         Some(info) if info.value.is_some() => info,
         _ => {
-            warnings.push(warning_missing_capture_time());
+            match context.timestamp_write_mode {
+                TimestampWriteMode::FromFileModified => {
+                    warnings.push(warning_mtime_unavailable());
+                }
+                _ => {
+                    warnings.push(warning_missing_capture_time());
+                }
+            }
             if context.ordering.requires_exif() {
                 warnings.push(warning_ordering_not_met(
                     "capture time is required for this scenario",
@@ -340,6 +345,36 @@ pub fn plan_filename(context: JsValue) -> Result<JsValue, JsValue> {
     to_value(&response).map_err(|err| err.into())
 }
 
+fn derive_capture_time_from_exif(
+    buffer: &[u8],
+    warnings: &mut Vec<MetadataWarning>,
+) -> Option<CaptureTimeInfo> {
+    match parse_exif_capture_time(buffer) {
+        Ok(Some(info)) => Some(info),
+        Ok(None) => {
+            warnings.push(warning_missing_capture_time());
+            None
+        }
+        Err(warning) => {
+            warnings.push(warning);
+            None
+        }
+    }
+}
+
+fn derive_capture_time_from_mtime(
+    last_modified_ms: Option<f64>,
+    warnings: &mut Vec<MetadataWarning>,
+) -> Option<CaptureTimeInfo> {
+    match last_modified_ms.and_then(capture_time_from_last_modified) {
+        Some(info) => Some(info),
+        None => {
+            warnings.push(warning_mtime_unavailable());
+            None
+        }
+    }
+}
+
 fn parse_exif_capture_time(bytes: &[u8]) -> Result<Option<CaptureTimeInfo>, MetadataWarning> {
     let mut cursor = Cursor::new(bytes);
     let exif_data = match Reader::new().read_from_container(&mut cursor) {
@@ -399,7 +434,11 @@ fn capture_time_from_last_modified(ms: f64) -> Option<CaptureTimeInfo> {
     if !ms.is_finite() || ms <= 0.0 {
         return None;
     }
-    let date = Date::new(&JsValue::from_f64(ms));
+    let floored = (ms / 1000.0).floor() * 1000.0;
+    if !floored.is_finite() || floored <= 0.0 {
+        return None;
+    }
+    let date = Date::new(&JsValue::from_f64(floored));
     let offset_minutes = -(date.get_timezone_offset() as i16);
     let value = format!(
         "{:04}:{:02}:{:02} {:02}:{:02}:{:02}",
@@ -413,7 +452,7 @@ fn capture_time_from_last_modified(ms: f64) -> Option<CaptureTimeInfo> {
     Some(CaptureTimeInfo {
         value: Some(value),
         offset_minutes: Some(offset_minutes),
-        timestamp_ms: Some(ms),
+        timestamp_ms: Some(floored),
         source: "file".to_string(),
     })
 }

@@ -41,6 +41,7 @@ export type DerivedMetadataResult = {
 
 export type MetadataDeriveContext = {
   captureTimeEnabled: boolean;
+  timestampWriteMode: TimestampWriteMode;
   lastModifiedMs?: number;
 };
 

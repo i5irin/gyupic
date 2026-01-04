@@ -213,6 +213,7 @@ export async function runProcessingPipeline(
     deriveSession = await deriveTimestampWithMetadataCore({
       file: sourceFile,
       captureTimeEnabled,
+      timestampWriteMode,
     });
   } catch (error) {
     throw asProcessingPipelineError(
