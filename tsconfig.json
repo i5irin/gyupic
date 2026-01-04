@@ -24,6 +24,7 @@
     /* Alias for moduled CSS type definition */
     "paths": {
       "views/*": ["./src/views/*"],
+      "metadata_core/*": ["./src/core/metadata/wasm-pkg/*"],
     },
   },
   "include": ["src"],
