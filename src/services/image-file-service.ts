@@ -53,6 +53,12 @@ export default class ImageFileService {
       config.mime,
       config.supportsQuality ? quality : undefined,
     );
+    if (blob.type && blob.type !== config.mime) {
+      // NOTE: Safari and similar browsers return PNG when WebP encoding is unsupported, so we treat that mismatch as a failure.
+      throw new Error(
+        `Requested ${config.mime} but browser produced ${blob.type}; this browser cannot encode the requested format.`,
+      );
+    }
     const fileName = `${imageFile.name}${config.extension}`;
     return new File([blob], fileName, {
       type: config.mime,

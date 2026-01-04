@@ -309,6 +309,15 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
                     warnings.push(err.into_warning());
                 }
             },
+            OutputFormat::Webp => match rewrite_webp_capture_time(&output, &capture_info) {
+                Ok(next_bytes) => {
+                    output = next_bytes;
+                    applied_flags.capture_time = true;
+                }
+                Err(err) => {
+                    warnings.push(err.into_warning());
+                }
+            },
             other => warnings.push(warning_unsupported_format(other.as_str())),
         }
     }
@@ -389,12 +398,17 @@ fn derive_capture_time_from_mtime(
 
 fn parse_exif_capture_time(bytes: &[u8]) -> Result<Option<CaptureTimeInfo>, MetadataWarning> {
     let is_png = is_png_image(bytes);
+    let is_webp = is_webp_image(bytes);
     match parse_capture_time_with_reader(bytes) {
         Ok(Some(info)) => return Ok(Some(info)),
         Ok(None) => {}
         Err(err) => {
             if is_png {
                 if let Some(info) = parse_png_capture_time(bytes)? {
+                    return Ok(Some(info));
+                }
+            } else if is_webp {
+                if let Some(info) = parse_webp_capture_time(bytes)? {
                     return Ok(Some(info));
                 }
             }
@@ -404,6 +418,9 @@ fn parse_exif_capture_time(bytes: &[u8]) -> Result<Option<CaptureTimeInfo>, Meta
 
     if is_png {
         return parse_png_capture_time(bytes);
+    }
+    if is_webp {
+        return parse_webp_capture_time(bytes);
     }
     Ok(None)
 }
@@ -425,26 +442,33 @@ fn parse_capture_time_with_reader(
 }
 
 fn parse_png_capture_time(bytes: &[u8]) -> Result<Option<CaptureTimeInfo>, MetadataWarning> {
-    let mut payload = match extract_png_exif_chunk(bytes)? {
+    let payload = match extract_png_exif_chunk(bytes)? {
         Some(data) => data,
         None => return Ok(None),
     };
     // NOTE: PNG eXIf chunks prepend an \"Exif\\0\\0\" signature, so strip it off before calling Reader::read_raw to avoid parse failures.
-    let exif_bytes = if payload.starts_with(&EXIF_HEADER) {
-        if payload.len() <= EXIF_HEADER.len() {
-            return Err(warning_extract_failed(
-                "PNG Exif chunk is missing TIFF payload".to_string(),
-            ));
-        }
-        payload.split_off(EXIF_HEADER.len())
-    } else {
-        payload
-    };
+    let exif_bytes = strip_exif_header(payload)?;
     let exif_data = Reader::new()
         .read_raw(exif_bytes)
         .map_err(|err| {
             warning_extract_failed(format!(
                 "failed to parse Exif metadata from PNG chunk: {err}"
+            ))
+        })?;
+    Ok(capture_time_from_exif(&exif_data))
+}
+
+fn parse_webp_capture_time(bytes: &[u8]) -> Result<Option<CaptureTimeInfo>, MetadataWarning> {
+    let payload = match extract_webp_exif_chunk(bytes)? {
+        Some(data) => data,
+        None => return Ok(None),
+    };
+    let exif_bytes = strip_exif_header(payload)?;
+    let exif_data = Reader::new()
+        .read_raw(exif_bytes)
+        .map_err(|err| {
+            warning_extract_failed(format!(
+                "failed to parse Exif metadata from WebP chunk: {err}"
             ))
         })?;
     Ok(capture_time_from_exif(&exif_data))
@@ -489,6 +513,41 @@ fn extract_png_exif_chunk(bytes: &[u8]) -> Result<Option<Vec<u8>>, MetadataWarni
     Ok(None)
 }
 
+fn extract_webp_exif_chunk(bytes: &[u8]) -> Result<Option<Vec<u8>>, MetadataWarning> {
+    if !is_webp_image(bytes) {
+        return Ok(None);
+    }
+    let mut cursor = 12;
+    while cursor + 8 <= bytes.len() {
+        let mut chunk_type = [0u8; 4];
+        chunk_type.copy_from_slice(&bytes[cursor..cursor + 4]);
+        let size = u32::from_le_bytes([
+            bytes[cursor + 4],
+            bytes[cursor + 5],
+            bytes[cursor + 6],
+            bytes[cursor + 7],
+        ]) as usize;
+        let data_start = cursor + 8;
+        let data_end = data_start + size;
+        if data_end > bytes.len() {
+            return Err(warning_extract_failed(
+                "WebP chunk exceeds buffer length".to_string(),
+            ));
+        }
+        if &chunk_type == b"EXIF" {
+            return Ok(Some(bytes[data_start..data_end].to_vec()));
+        }
+        let padding = size % 2;
+        cursor = data_end + padding;
+        if cursor > bytes.len() {
+            return Err(warning_extract_failed(
+                "WebP chunk padding exceeds buffer length".to_string(),
+            ));
+        }
+    }
+    Ok(None)
+}
+
 fn capture_time_from_exif(exif_data: &Exif) -> Option<CaptureTimeInfo> {
     let capture_value = [Tag::DateTimeOriginal, Tag::DateTimeDigitized, Tag::DateTime]
         .into_iter()
@@ -518,6 +577,22 @@ fn capture_time_from_exif(exif_data: &Exif) -> Option<CaptureTimeInfo> {
 
 fn is_png_image(bytes: &[u8]) -> bool {
     bytes.len() >= PNG_SIGNATURE.len() && bytes[..PNG_SIGNATURE.len()] == PNG_SIGNATURE
+}
+
+fn is_webp_image(bytes: &[u8]) -> bool {
+    bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP"
+}
+
+fn strip_exif_header(mut payload: Vec<u8>) -> Result<Vec<u8>, MetadataWarning> {
+    if payload.starts_with(&EXIF_HEADER) {
+        if payload.len() <= EXIF_HEADER.len() {
+            return Err(warning_extract_failed(
+                "Exif payload is missing TIFF data after the header".to_string(),
+            ));
+        }
+        payload.drain(..EXIF_HEADER.len());
+    }
+    Ok(payload)
 }
 
 fn read_ascii_field(exif_data: &Exif, tag: Tag) -> Option<String> {
@@ -752,6 +827,49 @@ fn rewrite_png_capture_time(
     Ok(output)
 }
 
+fn rewrite_webp_capture_time(
+    input: &[u8],
+    capture: &CaptureTimeInfo,
+) -> Result<Vec<u8>, ApplyFailure> {
+    if !is_webp_image(input) {
+        return Err(ApplyFailure::Unsupported(
+            "output bytes are not a WebP image".to_string(),
+        ));
+    }
+    let exif_payload = build_exif_payload(capture)?;
+    let mut parse_result = parse_webp_chunks_without_exif(input)?;
+    let exif_chunk = WebpChunk {
+        fourcc: *b"EXIF",
+        data: exif_payload,
+    };
+
+    if let Some(index) = parse_result.vp8x_index {
+        ensure_vp8x_exif_flag(&mut parse_result.chunks[index].data)?;
+        parse_result.chunks.insert(index + 1, exif_chunk);
+    } else {
+        let (width, height) = parse_result
+            .canvas_size_from_vp8x
+            .or(parse_result.image_size_from_vp8)
+            .ok_or_else(|| {
+                ApplyFailure::Apply(
+                    "could not determine canvas size for the WebP image".to_string(),
+                )
+            })?;
+        let mut vp8x_chunk = build_vp8x_chunk(width, height)?;
+        ensure_vp8x_exif_flag(&mut vp8x_chunk)?;
+        parse_result.chunks.insert(
+            0,
+            WebpChunk {
+                fourcc: *b"VP8X",
+                data: vp8x_chunk,
+            },
+        );
+        parse_result.chunks.insert(1, exif_chunk);
+    }
+
+    build_webp_riff(parse_result.chunks)
+}
+
 fn build_png_exif_chunk(payload: &[u8]) -> Vec<u8> {
     let length = payload.len() as u32;
     let mut chunk = Vec::with_capacity(payload.len() + 12);
@@ -765,6 +883,193 @@ fn build_png_exif_chunk(payload: &[u8]) -> Vec<u8> {
     chunk.extend_from_slice(&crc.to_be_bytes());
     chunk
 }
+
+struct WebpChunk {
+    fourcc: [u8; 4],
+    data: Vec<u8>,
+}
+
+struct WebpParseResult {
+    chunks: Vec<WebpChunk>,
+    vp8x_index: Option<usize>,
+    canvas_size_from_vp8x: Option<(u32, u32)>,
+    image_size_from_vp8: Option<(u32, u32)>,
+}
+
+fn parse_webp_chunks_without_exif(input: &[u8]) -> Result<WebpParseResult, ApplyFailure> {
+    if input.len() < 12 || &input[..4] != b"RIFF" || &input[8..12] != b"WEBP" {
+        return Err(ApplyFailure::Unsupported(
+            "output bytes are not a WebP image".to_string(),
+        ));
+    }
+    let mut cursor = 12;
+    let mut result = WebpParseResult {
+        chunks: Vec::new(),
+        vp8x_index: None,
+        canvas_size_from_vp8x: None,
+        image_size_from_vp8: None,
+    };
+
+    while cursor + 8 <= input.len() {
+        let mut fourcc = [0u8; 4];
+        fourcc.copy_from_slice(&input[cursor..cursor + 4]);
+        let size = u32::from_le_bytes([
+            input[cursor + 4],
+            input[cursor + 5],
+            input[cursor + 6],
+            input[cursor + 7],
+        ]) as usize;
+        let data_start = cursor + 8;
+        let data_end = data_start + size;
+        if data_end > input.len() {
+            return Err(ApplyFailure::Apply(
+                "WebP chunk exceeds buffer length".to_string(),
+            ));
+        }
+
+        let chunk_data = input[data_start..data_end].to_vec();
+        if &fourcc == b"EXIF" {
+            let padding = size % 2;
+            cursor = data_end + padding;
+            if cursor > input.len() {
+                return Err(ApplyFailure::Apply(
+                    "WebP chunk padding exceeds buffer length".to_string(),
+                ));
+            }
+            continue;
+        }
+
+        if &fourcc == b"VP8X" {
+            result.vp8x_index = Some(result.chunks.len());
+            result.canvas_size_from_vp8x = parse_vp8x_canvas_size(&chunk_data);
+        } else if result.image_size_from_vp8.is_none() {
+            if &fourcc == b"VP8 " {
+                result.image_size_from_vp8 = parse_vp8_dimensions(&chunk_data);
+            } else if &fourcc == b"VP8L" {
+                result.image_size_from_vp8 = parse_vp8l_dimensions(&chunk_data);
+            }
+        }
+
+        result.chunks.push(WebpChunk {
+            fourcc,
+            data: chunk_data,
+        });
+
+        let padding = size % 2;
+        cursor = data_end + padding;
+        if cursor > input.len() {
+            return Err(ApplyFailure::Apply(
+                "WebP chunk padding exceeds buffer length".to_string(),
+            ));
+        }
+    }
+
+    Ok(result)
+}
+
+fn build_webp_riff(chunks: Vec<WebpChunk>) -> Result<Vec<u8>, ApplyFailure> {
+    let mut output = Vec::new();
+    output.extend_from_slice(b"RIFF");
+    output.extend_from_slice(&[0u8; 4]);
+    output.extend_from_slice(b"WEBP");
+
+    for chunk in chunks {
+        output.extend_from_slice(&chunk.fourcc);
+        let size = chunk.data.len() as u32;
+        output.extend_from_slice(&size.to_le_bytes());
+        output.extend_from_slice(&chunk.data);
+        if size % 2 == 1 {
+            output.push(0);
+        }
+    }
+
+    let file_size = output
+        .len()
+        .checked_sub(8)
+        .ok_or_else(|| ApplyFailure::Apply("WebP output is malformed".to_string()))?;
+    if file_size > u32::MAX as usize {
+        return Err(ApplyFailure::Apply(
+            "WebP output exceeds RIFF size limit".to_string(),
+        ));
+    }
+    let size_bytes = (file_size as u32).to_le_bytes();
+    output[4..8].copy_from_slice(&size_bytes);
+    Ok(output)
+}
+
+fn ensure_vp8x_exif_flag(data: &mut [u8]) -> Result<(), ApplyFailure> {
+    if data.len() < 10 {
+        return Err(ApplyFailure::Apply(
+            "VP8X chunk is too small to update feature flags".to_string(),
+        ));
+    }
+    data[0] |= 0x08;
+    Ok(())
+}
+
+fn build_vp8x_chunk(width: u32, height: u32) -> Result<Vec<u8>, ApplyFailure> {
+    if width == 0 || height == 0 {
+        return Err(ApplyFailure::Apply(
+            "WebP canvas dimensions must be non-zero".to_string(),
+        ));
+    }
+    let width_minus_one = width
+        .checked_sub(1)
+        .ok_or_else(|| ApplyFailure::Apply("WebP width underflow".to_string()))?;
+    let height_minus_one = height
+        .checked_sub(1)
+        .ok_or_else(|| ApplyFailure::Apply("WebP height underflow".to_string()))?;
+    if width_minus_one > 0xFFFFFF || height_minus_one > 0xFFFFFF {
+        return Err(ApplyFailure::Apply(
+            "WebP canvas dimensions exceed specification limits".to_string(),
+        ));
+    }
+
+    let mut data = vec![0u8; 10];
+    data[4] = (width_minus_one & 0xFF) as u8;
+    data[5] = ((width_minus_one >> 8) & 0xFF) as u8;
+    data[6] = ((width_minus_one >> 16) & 0xFF) as u8;
+    data[7] = (height_minus_one & 0xFF) as u8;
+    data[8] = ((height_minus_one >> 8) & 0xFF) as u8;
+    data[9] = ((height_minus_one >> 16) & 0xFF) as u8;
+    Ok(data)
+}
+
+fn parse_vp8x_canvas_size(data: &[u8]) -> Option<(u32, u32)> {
+    if data.len() < 10 {
+        return None;
+    }
+    let width = 1
+        + u32::from_le_bytes([data[4], data[5], data[6], 0]);
+    let height = 1
+        + u32::from_le_bytes([data[7], data[8], data[9], 0]);
+    Some((width, height))
+}
+
+fn parse_vp8_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    if data.len() < 10 || data[3] != 0x9d || data[4] != 0x01 || data[5] != 0x2a {
+        return None;
+    }
+    let width_raw = u16::from_le_bytes([data[6], data[7]]);
+    let height_raw = u16::from_le_bytes([data[8], data[9]]);
+    let width = (width_raw & 0x3fff) as u32;
+    let height = (height_raw & 0x3fff) as u32;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some((width, height))
+}
+
+fn parse_vp8l_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    if data.len() < 5 || data[0] != 0x2f {
+        return None;
+    }
+    let bits = u32::from_le_bytes([data[1], data[2], data[3], data[4]]);
+    let width = (bits & 0x3fff) + 1;
+    let height = ((bits >> 14) & 0x3fff) + 1;
+    Some((width, height))
+}
+
 
 fn is_app_marker(marker: u8) -> bool {
     (0xE0..=0xEF).contains(&marker)

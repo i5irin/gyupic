@@ -42,6 +42,12 @@ export async function convertWithOffscreenCanvas(
     type: config.mime,
     ...(config.supportsQuality ? { quality: options.quality } : {}),
   });
+  if (blob.type && blob.type !== config.mime) {
+    // Safari and similar browsers return PNG when WebP encoding is unsupported, so fail fast here.
+    throw new Error(
+      `Requested ${config.mime} but browser produced ${blob.type}; this browser cannot encode the requested format.`,
+    );
+  }
   const outputName = deriveOutputName(file, config.extension);
   return new File([blob], outputName, { type: config.mime });
 }
