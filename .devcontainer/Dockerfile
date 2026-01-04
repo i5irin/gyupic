@@ -1,6 +1,10 @@
 ARG NODE_IMAGE="mcr.microsoft.com/devcontainers/typescript-node:1-20-bullseye"
 FROM ${NODE_IMAGE}
 
+ARG RUST_VERSION="stable"
+ARG WASM_BINDGEN_VERSION="0.2.106"
+ARG WASM_PACK_VERSION="0.12.1"
+
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:${PATH}
@@ -14,14 +18,13 @@ RUN set -eux; \
       pkg-config \
       libssl-dev; \
     rm -rf /var/lib/apt/lists/*; \
-    # Rust toolchain (stable) + wasm32 target
-    curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable --profile minimal; \
+    curl https://sh.rustup.rs -sSf \
+      | sh -s -- -y --default-toolchain "${RUST_VERSION}" --profile minimal; \
     . "$CARGO_HOME/env"; \
-    rustup target add wasm32-unknown-unknown; \
-    # Build-from-source to avoid glibc mismatch of prebuilt wasm-bindgen
-    cargo install wasm-bindgen-cli --version 0.2.106 --locked; \
-    # Keep wasm-pack for wasm-pack build workflow
-    cargo install wasm-pack --locked; \
+    rustup default "${RUST_VERSION}"; \
+    rustup target add wasm32-unknown-unknown --toolchain "${RUST_VERSION}"; \
+    cargo install wasm-bindgen-cli --version "${WASM_BINDGEN_VERSION}" --locked; \
+    cargo install wasm-pack --version "${WASM_PACK_VERSION}" --locked; \
     chown -R node:node "$RUSTUP_HOME" "$CARGO_HOME"
 
 # Ensure wasm-pack picks up the locally built wasm-bindgen
