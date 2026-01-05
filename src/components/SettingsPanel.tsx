@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   FilenameStrategy,
+  FilenameTimestampSource,
   OutputFormat,
   TimestampWriteMode,
 } from '../domain/presets';
@@ -27,6 +28,7 @@ type Props = {
   currentJpegQuality: number;
   currentOutputFormat: OutputFormat;
   currentFilenameStrategy: FilenameStrategy;
+  currentFilenameTimestampSource: FilenameTimestampSource;
   currentTimestampMode: TimestampWriteMode;
   rewriteExif: boolean;
   injectFromEditedTime: boolean;
@@ -38,6 +40,7 @@ type Props = {
     jpegQuality: number;
     outputFormat: OutputFormat;
     filenameStrategy: FilenameStrategy;
+    filenameTimestampSource: FilenameTimestampSource;
     timestampWriteMode: TimestampWriteMode;
     rewriteExif: boolean;
     injectFromEditedTime: boolean;
@@ -48,6 +51,7 @@ export default function SettingsPanel({
   currentJpegQuality,
   currentOutputFormat,
   currentFilenameStrategy,
+  currentFilenameTimestampSource,
   currentTimestampMode,
   rewriteExif,
   injectFromEditedTime,
@@ -74,6 +78,8 @@ export default function SettingsPanel({
     useState<OutputFormat>(currentOutputFormat);
   const [draftFilenameStrategy, setDraftFilenameStrategy] =
     useState<FilenameStrategy>(currentFilenameStrategy);
+  const [draftFilenameTimestampSource, setDraftFilenameTimestampSource] =
+    useState<FilenameTimestampSource>(currentFilenameTimestampSource);
   const [draftTimestampMode, setDraftTimestampMode] =
     useState<TimestampWriteMode>(currentTimestampMode);
   const [draftRewriteExif, setDraftRewriteExif] =
@@ -94,6 +100,10 @@ export default function SettingsPanel({
   }, [currentFilenameStrategy]);
 
   useEffect(() => {
+    setDraftFilenameTimestampSource(currentFilenameTimestampSource);
+  }, [currentFilenameTimestampSource]);
+
+  useEffect(() => {
     setDraftTimestampMode(currentTimestampMode);
   }, [currentTimestampMode]);
 
@@ -110,6 +120,7 @@ export default function SettingsPanel({
       normalize(draftQuality) !== normalize(currentJpegQuality) ||
       draftOutputFormat !== currentOutputFormat ||
       draftFilenameStrategy !== currentFilenameStrategy ||
+      draftFilenameTimestampSource !== currentFilenameTimestampSource ||
       draftTimestampMode !== currentTimestampMode ||
       draftRewriteExif !== rewriteExif ||
       draftInjectEdited !== injectFromEditedTime,
@@ -120,6 +131,8 @@ export default function SettingsPanel({
       currentOutputFormat,
       draftFilenameStrategy,
       currentFilenameStrategy,
+      draftFilenameTimestampSource,
+      currentFilenameTimestampSource,
       draftTimestampMode,
       currentTimestampMode,
       draftRewriteExif,
@@ -141,17 +154,47 @@ export default function SettingsPanel({
     { value: 'gif', label: 'GIF' },
   ];
 
-  const filenameStrategyOptions: { value: FilenameStrategy; label: string }[] =
-    [
-      { value: 'keep-original', label: 'Keep original names' },
-      { value: 'timestamped', label: 'Add YYYYMMDD_HHmmss prefix' },
-    ];
+  type FilenameChoice =
+    | 'keep-original'
+    | 'timestamped-capture'
+    | 'timestamped-mtime';
+
+  const filenameChoiceOptions: { value: FilenameChoice; label: string }[] = [
+    { value: 'keep-original', label: 'Keep original filenames' },
+    {
+      value: 'timestamped-capture',
+      label: 'Timestamped (capture time)',
+    },
+    {
+      value: 'timestamped-mtime',
+      label: 'Timestamped (file edited time)',
+    },
+  ];
 
   const timestampModeOptions: { value: TimestampWriteMode; label: string }[] = [
-    { value: 'copy-exif', label: 'Copy Exif capture time' },
-    { value: 'from-file-modified', label: 'Use edited/file time' },
-    { value: 'off', label: 'Do not rewrite timestamps' },
+    { value: 'copy-exif', label: 'Write capture time from Exif' },
+    { value: 'from-file-modified', label: 'Write from edited/file time' },
+    { value: 'off', label: 'Do not write capture time' },
   ];
+
+  const filenameChoiceValue: FilenameChoice =
+    // eslint-disable-next-line no-nested-ternary
+    draftFilenameStrategy === 'timestamped'
+      ? draftFilenameTimestampSource === 'mtime'
+        ? 'timestamped-mtime'
+        : 'timestamped-capture'
+      : 'keep-original';
+
+  const updateFilenameChoice = (value: FilenameChoice) => {
+    if (value === 'keep-original') {
+      setDraftFilenameStrategy('keep-original');
+      return;
+    }
+    setDraftFilenameStrategy('timestamped');
+    setDraftFilenameTimestampSource(
+      value === 'timestamped-mtime' ? 'mtime' : 'captureTime',
+    );
+  };
 
   return (
     <section className={styles.settingsPanel} aria-label="Settings">
@@ -273,22 +316,17 @@ export default function SettingsPanel({
         </div>
 
         <div className={styles.settingsPanelRow}>
-          <label
-            className={styles.settingsPanelLabel}
-            htmlFor="filenameStrategy"
-          >
-            Filename Strategy
+          <label className={styles.settingsPanelLabel} htmlFor="filenameChoice">
+            Filename
             <select
-              id="filenameStrategy"
+              id="filenameChoice"
               className={styles.settingsPanelSelect}
-              value={draftFilenameStrategy}
+              value={filenameChoiceValue}
               onChange={(e) =>
-                setDraftFilenameStrategy(
-                  e.currentTarget.value as FilenameStrategy,
-                )
+                updateFilenameChoice(e.currentTarget.value as FilenameChoice)
               }
             >
-              {filenameStrategyOptions.map((option) => (
+              {filenameChoiceOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -296,14 +334,15 @@ export default function SettingsPanel({
             </select>
           </label>
           <div className={styles.settingsPanelNote}>
-            `timestamped` adds `YYYYMMDD_HHmmss_` to filenames to help Finder /
-            Files sort by name.
+            Timestamped options add <code>YYYYMMDD_HHmmss_</code> before the
+            sanitized filename. Capture-time and edited-time sources are
+            independent from the Capture Time writing setting below.
           </div>
         </div>
 
         <div className={styles.settingsPanelRow}>
           <label className={styles.settingsPanelLabel} htmlFor="timestampMode">
-            Timestamp Source
+            Capture Time (Exif writing)
             <select
               id="timestampMode"
               className={styles.settingsPanelSelect}
@@ -321,6 +360,10 @@ export default function SettingsPanel({
               ))}
             </select>
           </label>
+          <div className={styles.settingsPanelNote}>
+            Controls whether Capture Time is rewritten inside the output file.
+            Turning this off does not affect filename timestamp choices.
+          </div>
         </div>
 
         <div className={styles.settingsPanelRow}>
@@ -362,6 +405,7 @@ export default function SettingsPanel({
                 jpegQuality: normalize(draftQuality),
                 outputFormat: draftOutputFormat,
                 filenameStrategy: draftFilenameStrategy,
+                filenameTimestampSource: draftFilenameTimestampSource,
                 timestampWriteMode: draftTimestampMode,
                 rewriteExif: draftRewriteExif,
                 injectFromEditedTime: draftInjectEdited,

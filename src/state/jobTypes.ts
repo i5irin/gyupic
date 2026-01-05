@@ -1,5 +1,6 @@
 import type {
   FilenameStrategy,
+  FilenameTimestampSource,
   OrderingRequirement,
   OutputFormat,
   PresetId,
@@ -91,6 +92,7 @@ export type ConvertSettings = {
   jpegQuality: number;
   outputFormat: OutputFormat;
   filenameStrategy: FilenameStrategy;
+  filenameTimestampSource: FilenameTimestampSource;
   timestampWriteMode: TimestampWriteMode;
   rewriteExif: boolean;
   injectFromEditedTime: boolean;

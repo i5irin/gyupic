@@ -40,6 +40,7 @@ function buildSettingsFromPreset(
     jpegQuality: defaults.jpegQuality,
     outputFormat: defaults.outputFormat,
     filenameStrategy: defaults.filenameStrategy,
+    filenameTimestampSource: defaults.filenameTimestampSource,
     timestampWriteMode: defaults.timestampWriteMode,
     rewriteExif: defaults.rewriteExif,
     injectFromEditedTime: defaults.injectFromEditedTime,
