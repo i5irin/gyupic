@@ -1,4 +1,5 @@
 import type {
+  FilenameStrategy,
   OrderingRequirement,
   OutputFormat,
   TimestampWriteMode,
@@ -11,10 +12,12 @@ import {
   applyTimestamp as applyLegacyMetadata,
   type ApplyResult as LegacyApplyResult,
   deriveTimestamp as deriveLegacyMetadata,
+  parseExifDateTime,
 } from './metadataPolicy';
 import type {
   DerivedCaptureTime,
   DerivedMetadataResult,
+  FilenamePlanResult,
   MetadataApplyContext,
   MetadataWarning,
 } from './wasmBridge';
@@ -335,6 +338,56 @@ export async function applyMetadataWithMetadataCore(
   });
 
   return mapLegacyApplyResult(legacyResult, options.ordering);
+}
+
+type PlanFilenameOptions = {
+  sourceFile: File;
+  filenameStrategy: FilenameStrategy;
+  outputFormat: OutputFormat;
+  session: MetadataCoreDeriveSession;
+};
+
+function deriveTimestampMsForPlan(
+  session: MetadataCoreDeriveSession,
+): number | undefined {
+  const captureTimestamp = session.captureTime?.timestampMs;
+  if (
+    typeof captureTimestamp === 'number' &&
+    Number.isFinite(captureTimestamp)
+  ) {
+    return captureTimestamp;
+  }
+  if (session.derived.kind === 'file') {
+    return session.derived.value;
+  }
+  if (session.derived.kind === 'exif') {
+    return (
+      parseExifDateTime(
+        session.derived.value,
+        session.derived.offset ?? undefined,
+      ) ?? undefined
+    );
+  }
+  return undefined;
+}
+
+export async function planFilenameWithMetadataCore(
+  options: PlanFilenameOptions,
+): Promise<FilenamePlanResult> {
+  if (options.session.mode !== 'wasm') {
+    throw new Error(
+      'Filename planning via WASM is unavailable in fallback mode.',
+    );
+  }
+  const bindings = await getMetadataCore();
+  const timestampMs = deriveTimestampMsForPlan(options.session);
+  const context = {
+    sourceName: options.sourceFile.name ?? '',
+    filenameStrategy: options.filenameStrategy,
+    outputFormat: options.outputFormat,
+    timestampMs,
+  };
+  return bindings.plan_filename(context);
 }
 
 type MetadataDeriveContext = {

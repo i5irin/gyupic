@@ -10,6 +10,8 @@ import type { DerivedTimestamp, JobMetadataInfo } from '../../state/jobTypes';
 import {
   applyMetadataWithMetadataCore,
   deriveTimestampWithMetadataCore,
+  planFilenameWithMetadataCore,
+  type MetadataCoreDeriveSession,
 } from '../metadata/metadataCoreAdapter';
 import { parseExifDateTime } from '../metadata/metadataPolicy';
 import {
@@ -146,7 +148,7 @@ function resolveTimestampMs(
   return undefined;
 }
 
-function buildFilenamePlan(options: {
+function buildLegacyFilenamePlan(options: {
   filenameStrategy: FilenameStrategy;
   timestampWriteMode: TimestampWriteMode;
   derived: DerivedTimestamp;
@@ -181,6 +183,62 @@ function buildFilenamePlan(options: {
     targetName: `${timestamp}_${baseName}${config.extension}`,
     timestampMs,
   };
+}
+
+async function planOutputFilename(options: {
+  filenameStrategy: FilenameStrategy;
+  timestampWriteMode: TimestampWriteMode;
+  derived: DerivedTimestamp;
+  sourceFile: File;
+  outputFormat: OutputFormat;
+  session: MetadataCoreDeriveSession;
+}): Promise<FilenamePlan> {
+  const {
+    filenameStrategy,
+    timestampWriteMode,
+    derived,
+    sourceFile,
+    outputFormat,
+    session,
+  } = options;
+  if (filenameStrategy === 'keep-original') {
+    return {};
+  }
+  if (session.mode === 'wasm') {
+    try {
+      const planResult = await planFilenameWithMetadataCore({
+        sourceFile,
+        filenameStrategy,
+        outputFormat,
+        session,
+      });
+      return {
+        targetName: planResult.targetName ?? undefined,
+        timestampMs:
+          typeof planResult.timestampMs === 'number' &&
+          Number.isFinite(planResult.timestampMs)
+            ? planResult.timestampMs
+            : undefined,
+        warning:
+          Array.isArray(planResult.warnings) && planResult.warnings.length > 0
+            ? planResult.warnings.map((warning) => warning.message).join(' / ')
+            : undefined,
+      };
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        'metadata-core: filename planning via WASM failed, falling back',
+        error,
+      );
+    }
+  }
+  return buildLegacyFilenamePlan({
+    filenameStrategy,
+    timestampWriteMode,
+    derived,
+    sourceFile,
+    outputFormat,
+  });
 }
 
 export async function runProcessingPipeline(
@@ -224,12 +282,13 @@ export async function runProcessingPipeline(
   }
   const derivedTimestamp = deriveSession.derived;
 
-  const filenamePlan = buildFilenamePlan({
+  const filenamePlan = await planOutputFilename({
     filenameStrategy,
     timestampWriteMode,
     derived: derivedTimestamp,
     sourceFile,
     outputFormat,
+    session: deriveSession,
   });
 
   const applyResult = await applyMetadataWithMetadataCore({

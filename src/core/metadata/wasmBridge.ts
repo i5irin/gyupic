@@ -67,6 +67,7 @@ export type FilenamePlanResult = {
   applied: boolean;
   targetName?: string;
   fallbackStrategy?: FilenameStrategy;
+  timestampMs?: number;
   warnings: MetadataWarning[];
 };
 
