@@ -134,13 +134,12 @@ impl Default for DeriveMetadataContext {
 #[serde(rename_all = "camelCase")]
 struct MetadataApplyContext {
     #[serde(default = "bool_true")]
-   capture_time_enabled: bool,
+    capture_time_enabled: bool,
     #[serde(default)]
     capture_time: Option<CaptureTimeInfo>,
-    ordering: OrderingRequirement,
     timestamp_write_mode: TimestampWriteMode,
-    rewrite_exif: bool,
-    inject_from_edited_time: bool,
+    #[serde(default)]
+    needs_capture_time_for_filenames: bool,
     output_format: OutputFormat,
     #[serde(default)]
     file_name_override: Option<String>,
@@ -165,23 +164,6 @@ struct FilenamePlanContext {
     #[serde(default)]
     sanitized_base_name: Option<String>,
     output_format: OutputFormat,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OrderingRequirement {
-    sorting_axis: OrderingAxis,
-    #[serde(default)]
-    needs_exif: Option<bool>,
-    #[serde(default)]
-    allow_edited_time_fallback: Option<bool>,
-}
-
-impl OrderingRequirement {
-    fn requires_exif(&self) -> bool {
-        self.needs_exif
-            .unwrap_or(matches!(self.sorting_axis, OrderingAxis::Exif))
-    }
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -237,13 +219,6 @@ impl OutputFormat {
             OutputFormat::Gif => ".gif",
         }
     }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum OrderingAxis {
-    Exif,
-    Filename,
 }
 
 #[wasm_bindgen]
@@ -311,9 +286,10 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
                     warnings.push(warning_missing_capture_time());
                 }
             }
-            if context.ordering.requires_exif() {
-                warnings.push(warning_ordering_not_met(
-                    "capture time is required for this scenario",
+            if context.capture_time_enabled || context.needs_capture_time_for_filenames {
+                warnings.push(warning_requirement_not_met(
+                    "capture-time",
+                    "Capture time was required by the current settings but was unavailable.",
                 ));
             }
             let response = ApplyMetadataResponse {
@@ -336,42 +312,41 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
         warnings.push(warning_mtime_unavailable());
     }
 
-    if context.rewrite_exif {
-        match &context.output_format {
-            OutputFormat::Jpeg => match rewrite_jpeg_capture_time(&output, &capture_info) {
-                Ok(next_bytes) => {
-                    output = next_bytes;
-                    applied_flags.capture_time = true;
-                }
-                Err(err) => {
-                    warnings.push(err.into_warning());
-                }
-            },
-            OutputFormat::Png => match rewrite_png_capture_time(&output, &capture_info) {
-                Ok(next_bytes) => {
-                    output = next_bytes;
-                    applied_flags.capture_time = true;
-                }
-                Err(err) => {
-                    warnings.push(err.into_warning());
-                }
-            },
-            OutputFormat::Webp => match rewrite_webp_capture_time(&output, &capture_info) {
-                Ok(next_bytes) => {
-                    output = next_bytes;
-                    applied_flags.capture_time = true;
-                }
-                Err(err) => {
-                    warnings.push(err.into_warning());
-                }
-            },
-            other => warnings.push(warning_unsupported_format(other.as_str())),
-        }
+    match &context.output_format {
+        OutputFormat::Jpeg => match rewrite_jpeg_capture_time(&output, &capture_info) {
+            Ok(next_bytes) => {
+                output = next_bytes;
+                applied_flags.capture_time = true;
+            }
+            Err(err) => {
+                warnings.push(err.into_warning());
+            }
+        },
+        OutputFormat::Png => match rewrite_png_capture_time(&output, &capture_info) {
+            Ok(next_bytes) => {
+                output = next_bytes;
+                applied_flags.capture_time = true;
+            }
+            Err(err) => {
+                warnings.push(err.into_warning());
+            }
+        },
+        OutputFormat::Webp => match rewrite_webp_capture_time(&output, &capture_info) {
+            Ok(next_bytes) => {
+                output = next_bytes;
+                applied_flags.capture_time = true;
+            }
+            Err(err) => {
+                warnings.push(err.into_warning());
+            }
+        },
+        other => warnings.push(warning_unsupported_format(other.as_str())),
     }
 
-    if !applied_flags.capture_time && context.ordering.requires_exif() {
-        warnings.push(warning_ordering_not_met(
-            "capture time could not be written to the output image",
+    if !applied_flags.capture_time && context.capture_time_enabled {
+        warnings.push(warning_requirement_not_met(
+            "capture-time",
+            "Capture time could not be written to the output image.",
         ));
     }
 
@@ -472,7 +447,7 @@ fn fallback_filename_plan(
     reason: &str,
     mut warnings: Vec<MetadataWarning>,
 ) -> FilenamePlanResponse {
-    warnings.push(warning_filename_ordering_not_met(reason));
+    warnings.push(warning_requirement_not_met("filename", reason));
     FilenamePlanResponse {
         metadata_spec_version: METADATA_SPEC_VERSION.to_string(),
         applied: false,
@@ -1418,21 +1393,12 @@ fn warning_extract_failed(reason: String) -> MetadataWarning {
     )
 }
 
-fn warning_ordering_not_met(reason: &str) -> MetadataWarning {
+fn warning_requirement_not_met(field: &str, reason: &str) -> MetadataWarning {
     warning(
         "ORDERING_REQUIREMENT_NOT_MET",
-        "capture-time",
+        field,
         Some(reason.to_string()),
-        "Failed to satisfy the ordering requirement for the selected preset.",
-    )
-}
-
-fn warning_filename_ordering_not_met(reason: &str) -> MetadataWarning {
-    warning(
-        "ORDERING_REQUIREMENT_NOT_MET",
-        "filename",
-        Some(reason.to_string()),
-        "Failed to generate timestamped filename; original name was kept.",
+        "The requested setting could not be satisfied.",
     )
 }
 

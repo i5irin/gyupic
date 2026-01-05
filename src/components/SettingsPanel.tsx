@@ -30,8 +30,6 @@ type Props = {
   currentFilenameStrategy: FilenameStrategy;
   currentFilenameTimestampSource: FilenameTimestampSource;
   currentTimestampMode: TimestampWriteMode;
-  rewriteExif: boolean;
-  injectFromEditedTime: boolean;
   presetId: string;
   presetOptions: PresetOption[];
   activePreset?: ActivePresetInfo;
@@ -42,8 +40,6 @@ type Props = {
     filenameStrategy: FilenameStrategy;
     filenameTimestampSource: FilenameTimestampSource;
     timestampWriteMode: TimestampWriteMode;
-    rewriteExif: boolean;
-    injectFromEditedTime: boolean;
   }) => void;
 };
 
@@ -53,8 +49,6 @@ export default function SettingsPanel({
   currentFilenameStrategy,
   currentFilenameTimestampSource,
   currentTimestampMode,
-  rewriteExif,
-  injectFromEditedTime,
   presetId,
   presetOptions,
   activePreset,
@@ -82,10 +76,6 @@ export default function SettingsPanel({
     useState<FilenameTimestampSource>(currentFilenameTimestampSource);
   const [draftTimestampMode, setDraftTimestampMode] =
     useState<TimestampWriteMode>(currentTimestampMode);
-  const [draftRewriteExif, setDraftRewriteExif] =
-    useState<boolean>(rewriteExif);
-  const [draftInjectEdited, setDraftInjectEdited] =
-    useState<boolean>(injectFromEditedTime);
 
   useEffect(() => {
     setDraftQuality(normalize(currentJpegQuality));
@@ -107,23 +97,13 @@ export default function SettingsPanel({
     setDraftTimestampMode(currentTimestampMode);
   }, [currentTimestampMode]);
 
-  useEffect(() => {
-    setDraftRewriteExif(rewriteExif);
-  }, [rewriteExif]);
-
-  useEffect(() => {
-    setDraftInjectEdited(injectFromEditedTime);
-  }, [injectFromEditedTime]);
-
   const isDirty = useMemo(
     () =>
       normalize(draftQuality) !== normalize(currentJpegQuality) ||
       draftOutputFormat !== currentOutputFormat ||
       draftFilenameStrategy !== currentFilenameStrategy ||
       draftFilenameTimestampSource !== currentFilenameTimestampSource ||
-      draftTimestampMode !== currentTimestampMode ||
-      draftRewriteExif !== rewriteExif ||
-      draftInjectEdited !== injectFromEditedTime,
+      draftTimestampMode !== currentTimestampMode,
     [
       draftQuality,
       currentJpegQuality,
@@ -135,10 +115,6 @@ export default function SettingsPanel({
       currentFilenameTimestampSource,
       draftTimestampMode,
       currentTimestampMode,
-      draftRewriteExif,
-      rewriteExif,
-      draftInjectEdited,
-      injectFromEditedTime,
     ],
   );
 
@@ -366,36 +342,6 @@ export default function SettingsPanel({
           </div>
         </div>
 
-        <div className={styles.settingsPanelRow}>
-          <div className={styles.settingsPanelLabel}>Advanced Options</div>
-          <div className={styles.settingsPanelAdvancedToggles}>
-            <label
-              className={styles.settingsPanelCheckboxLabel}
-              htmlFor="rewriteExifTimestamps"
-            >
-              <input
-                id="rewriteExifTimestamps"
-                type="checkbox"
-                checked={draftRewriteExif}
-                onChange={(e) => setDraftRewriteExif(e.currentTarget.checked)}
-              />
-              Rewrite Exif timestamps
-            </label>
-            <label
-              className={styles.settingsPanelCheckboxLabel}
-              htmlFor="editedFileTimeFallback"
-            >
-              <input
-                id="editedFileTimeFallback"
-                type="checkbox"
-                checked={draftInjectEdited}
-                onChange={(e) => setDraftInjectEdited(e.currentTarget.checked)}
-              />
-              Allow edited/file time fallback
-            </label>
-          </div>
-        </div>
-
         <div className={styles.settingsPanelActions}>
           <button
             type="button"
@@ -407,8 +353,6 @@ export default function SettingsPanel({
                 filenameStrategy: draftFilenameStrategy,
                 filenameTimestampSource: draftFilenameTimestampSource,
                 timestampWriteMode: draftTimestampMode,
-                rewriteExif: draftRewriteExif,
-                injectFromEditedTime: draftInjectEdited,
               })
             }
             disabled={!isDirty}

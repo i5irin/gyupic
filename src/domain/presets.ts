@@ -6,14 +6,6 @@ export type FilenameTimestampSource = 'captureTime' | 'mtime';
 
 export type TimestampWriteMode = 'off' | 'copy-exif' | 'from-file-modified';
 
-export type OrderingRequirement = {
-  sortingAxis: 'exif' | 'filename';
-  /** Requires a valid Exif capture date to be written */
-  needsExif?: boolean;
-  /** Allows falling back to edited/lastModified timestamps when Exif is missing */
-  allowEditedTimeFallback?: boolean;
-};
-
 export type PresetId =
   | 'scenario.photos-to-photos'
   | 'scenario.folders-to-photos'
@@ -33,15 +25,12 @@ export type PresetDefinition = {
   usage: string[];
   category: 'stable' | 'experimental';
   recommended?: boolean;
-  ordering: OrderingRequirement;
   defaultSettings: {
     jpegQuality: number;
     outputFormat: OutputFormat;
     filenameStrategy: FilenameStrategy;
     filenameTimestampSource: FilenameTimestampSource;
     timestampWriteMode: TimestampWriteMode;
-    rewriteExif: boolean;
-    injectFromEditedTime: boolean;
   };
   inputBehavior: InputBehavior;
   environmentHints?: string[];
@@ -60,19 +49,12 @@ const PRESETS: Record<PresetId, PresetDefinition> = {
     ],
     category: 'stable',
     recommended: true,
-    ordering: {
-      sortingAxis: 'exif',
-      needsExif: true,
-      allowEditedTimeFallback: false,
-    },
     defaultSettings: {
       jpegQuality: 0.85,
       outputFormat: 'jpeg',
       filenameStrategy: 'keep-original',
       filenameTimestampSource: 'captureTime',
       timestampWriteMode: 'copy-exif',
-      rewriteExif: true,
-      injectFromEditedTime: false,
     },
     inputBehavior: {
       label: 'Add from Photos',
@@ -91,19 +73,12 @@ const PRESETS: Record<PresetId, PresetDefinition> = {
       'Sort images picked from iCloud Drive / Files by capture date.',
     ],
     category: 'stable',
-    ordering: {
-      sortingAxis: 'exif',
-      needsExif: true,
-      allowEditedTimeFallback: true,
-    },
     defaultSettings: {
       jpegQuality: 0.85,
       outputFormat: 'jpeg',
       filenameStrategy: 'keep-original',
       filenameTimestampSource: 'mtime',
       timestampWriteMode: 'from-file-modified',
-      rewriteExif: true,
-      injectFromEditedTime: true,
     },
     inputBehavior: {
       label: 'Add from Files / Finder',
@@ -121,19 +96,12 @@ const PRESETS: Record<PresetId, PresetDefinition> = {
       'Arrange in name order in iOS Photos → Windows/macOS/iOS Files.',
     ],
     category: 'stable',
-    ordering: {
-      sortingAxis: 'filename',
-      needsExif: false,
-      allowEditedTimeFallback: true,
-    },
     defaultSettings: {
       jpegQuality: 0.85,
       outputFormat: 'jpeg',
       filenameStrategy: 'timestamped',
       filenameTimestampSource: 'captureTime',
       timestampWriteMode: 'copy-exif',
-      rewriteExif: true,
-      injectFromEditedTime: true,
     },
     inputBehavior: {
       label: 'Add from Photos',

@@ -11,7 +11,6 @@ import {
   ProcessingPipelineError,
   ProcessingAbortedError,
 } from '../pipeline/processingErrors';
-import { getPreset } from '../../domain/presets';
 
 type Dispatch = (action: AppAction) => void;
 
@@ -118,12 +117,6 @@ export default class QueueManager {
     this.running.set(item.id, context);
     this.dispatch({ type: 'START_ITEM', id: item.id });
 
-    const preset = getPreset(context.settings.presetId);
-    const ordering = preset?.ordering ?? {
-      sortingAxis: 'exif',
-      needsExif: true,
-    };
-
     const params = {
       sourceFile: item.src.file,
       jpegQuality: context.settings.jpegQuality,
@@ -131,10 +124,7 @@ export default class QueueManager {
       filenameStrategy: context.settings.filenameStrategy,
       filenameTimestampSource: context.settings.filenameTimestampSource,
       timestampWriteMode: context.settings.timestampWriteMode,
-      rewriteExif: context.settings.rewriteExif,
-      injectFromEditedTime: context.settings.injectFromEditedTime,
       presetId: context.settings.presetId,
-      ordering,
     };
 
     this.workerPool

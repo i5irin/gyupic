@@ -1,10 +1,10 @@
 import type {
   FilenameStrategy,
   FilenameTimestampSource,
-  OrderingRequirement,
   OutputFormat,
   TimestampWriteMode,
 } from '../../domain/presets';
+import type { MetadataRequirements } from '../../domain/metadataRequirements';
 import type {
   DerivedTimestamp,
   MetadataGuaranteeStatus,
@@ -33,10 +33,7 @@ type DeriveOptions = {
 type ApplyOptions = {
   file: File;
   session: MetadataCoreDeriveSession;
-  ordering: OrderingRequirement;
-  timestampWriteMode: TimestampWriteMode;
-  rewriteExif: boolean;
-  injectFromEditedTime: boolean;
+  requirements: MetadataRequirements;
   outputFormat: OutputFormat;
   fileNameOverride?: string;
   lastModifiedOverrideMs?: number;
@@ -63,23 +60,22 @@ export type MetadataCoreApplyResult = {
 
 function deriveLegacyBadge(
   result: LegacyApplyResult,
-  ordering: OrderingRequirement,
+  requirements: MetadataRequirements,
 ): string {
   if (result.status === 'guaranteed') {
-    return 'original';
+    return requirements.captureTime.mode === 'from-file-modified'
+      ? 'from-mtime'
+      : 'original';
   }
   if (result.status === 'best-effort') {
     return 'from-mtime';
-  }
-  if (ordering.sortingAxis === 'filename') {
-    return 'filename-order';
   }
   return 'not-applied';
 }
 
 function mapLegacyApplyResult(
   result: LegacyApplyResult,
-  ordering: OrderingRequirement,
+  requirements: MetadataRequirements,
 ): MetadataCoreApplyResult {
   return {
     file: result.file,
@@ -94,7 +90,7 @@ function mapLegacyApplyResult(
           } as MetadataWarning,
         ]
       : [],
-    captureTimeBadge: deriveLegacyBadge(result, ordering),
+    captureTimeBadge: deriveLegacyBadge(result, requirements),
   };
 }
 
@@ -204,10 +200,9 @@ function buildApplyContext(options: ApplyOptions): MetadataApplyContext {
   return {
     captureTimeEnabled: options.session.captureTimeEnabled,
     captureTime: options.session.captureTime,
-    ordering: options.ordering,
-    timestampWriteMode: options.timestampWriteMode,
-    rewriteExif: options.rewriteExif,
-    injectFromEditedTime: options.injectFromEditedTime,
+    timestampWriteMode: options.requirements.captureTime.mode,
+    needsCaptureTimeForFilenames:
+      options.requirements.needsCaptureTimeForFilenames,
     outputFormat: options.outputFormat,
     fileNameOverride: options.fileNameOverride,
     lastModifiedOverrideMs: options.lastModifiedOverrideMs,
@@ -241,52 +236,26 @@ function buildFileFromWasmResponse(
 }
 
 function evaluateGuaranteeStatus(options: {
-  ordering: OrderingRequirement;
-  derived: DerivedTimestamp;
-  injectFromEditedTime: boolean;
+  requirements: MetadataRequirements;
   captureApplied: boolean;
   warnings: MetadataWarning[];
 }): {
   status: MetadataGuaranteeStatus;
   warningReason?: string;
 } {
-  const { ordering, derived, injectFromEditedTime, captureApplied, warnings } =
-    options;
-  const needsExif = ordering.needsExif ?? ordering.sortingAxis === 'exif';
-  const allowFallback =
-    ordering.allowEditedTimeFallback ?? injectFromEditedTime;
-  const derivedHasTime = derived.kind !== 'unavailable';
-  const derivedIsExif = derived.kind === 'exif';
-  const fallbackUsed =
-    needsExif && !derivedIsExif && derivedHasTime && allowFallback;
-
-  const success = needsExif ? captureApplied || fallbackUsed : true;
-
-  if (!success) {
-    return {
-      status: 'warning',
-      warningReason:
-        warnings[0]?.message || 'Capture time could not be applied to output.',
-    };
+  const { requirements, captureApplied, warnings } = options;
+  if (!requirements.captureTime.enabled) {
+    return { status: 'skipped' };
   }
-
-  if (fallbackUsed) {
-    return {
-      status: 'best-effort',
-      warningReason:
-        'Best-effort: timestamp derived from edited/lastModified metadata.',
-    };
+  if (captureApplied) {
+    return { status: 'guaranteed' };
   }
-
-  if (ordering.sortingAxis === 'filename') {
-    return {
-      status: 'best-effort',
-      warningReason:
-        'Ordering is enforced via filename sorting; verify destination order.',
-    };
-  }
-
-  return { status: 'guaranteed' };
+  return {
+    status: 'warning',
+    warningReason:
+      warnings[0]?.message ||
+      'Capture time could not be applied to the output image.',
+  };
 }
 
 async function tryApplyWithWasm(
@@ -301,9 +270,7 @@ async function tryApplyWithWasm(
     return {
       file,
       ...evaluateGuaranteeStatus({
-        ordering: options.ordering,
-        derived: options.session.derived,
-        injectFromEditedTime: options.injectFromEditedTime,
+        requirements: options.requirements,
         captureApplied: response.appliedFlags.captureTime,
         warnings: response.warnings,
       }),
@@ -330,15 +297,12 @@ export async function applyMetadataWithMetadataCore(
   const legacyResult = await applyLegacyMetadata({
     file: options.file,
     derived: options.session.derived,
-    ordering: options.ordering,
-    timestampWriteMode: options.timestampWriteMode,
-    rewriteExif: options.rewriteExif,
-    injectFromEditedTime: options.injectFromEditedTime,
+    requirements: options.requirements,
     fileNameOverride: options.fileNameOverride,
     lastModifiedOverride: options.lastModifiedOverrideMs,
   });
 
-  return mapLegacyApplyResult(legacyResult, options.ordering);
+  return mapLegacyApplyResult(legacyResult, options.requirements);
 }
 
 type PlanFilenameOptions = {

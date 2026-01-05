@@ -1,7 +1,6 @@
 import type {
   FilenameStrategy,
   FilenameTimestampSource,
-  OrderingRequirement,
   OutputFormat,
   PresetId,
   TimestampWriteMode,
@@ -43,10 +42,11 @@ export type MetadataGuaranteeStatus =
 
 export type JobMetadataInfo = {
   presetId: PresetId;
-  ordering: OrderingRequirement;
   derived: DerivedTimestamp;
   status: MetadataGuaranteeStatus;
   reason?: string;
+  captureTimeBadge?: string;
+  warnings?: string[];
 };
 
 export type JobErrorCode =
@@ -94,8 +94,6 @@ export type ConvertSettings = {
   filenameStrategy: FilenameStrategy;
   filenameTimestampSource: FilenameTimestampSource;
   timestampWriteMode: TimestampWriteMode;
-  rewriteExif: boolean;
-  injectFromEditedTime: boolean;
 };
 
 export type AppState = {
@@ -112,6 +110,5 @@ export type JobCaptureSnapshot = {
   runId: number;
   settingsRev: number;
   presetId: PresetId;
-  ordering: OrderingRequirement;
   startedAt: number;
 };

@@ -1,7 +1,6 @@
 import type {
   FilenameStrategy,
   OutputFormat,
-  OrderingRequirement,
   TimestampWriteMode,
 } from '../../domain/presets';
 
@@ -74,10 +73,8 @@ export type FilenamePlanResult = {
 export type MetadataApplyContext = {
   captureTimeEnabled: boolean;
   captureTime?: DerivedCaptureTime;
-  ordering: OrderingRequirement;
   timestampWriteMode: TimestampWriteMode;
-  rewriteExif: boolean;
-  injectFromEditedTime: boolean;
+  needsCaptureTimeForFilenames: boolean;
   outputFormat: OutputFormat;
   fileNameOverride?: string;
   lastModifiedOverrideMs?: number;
