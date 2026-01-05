@@ -2,8 +2,14 @@
 // README at: https://github.com/devcontainers/templates/tree/main/src/typescript-node
 {
   "name": "Node.js & TypeScript",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bullseye",
+  // Build via Dockerfile to keep base image while layering Rust/wasm-pack
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "..",
+    "args": {
+      "NODE_IMAGE": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bullseye",
+    },
+  },
   "customizations": {
     "vscode": {
       "extensions": [
@@ -12,7 +18,7 @@
         "esbenp.prettier-vscode",
         "stylelint.vscode-stylelint",
         "GitHub.copilot",
-        "GitHub.copilot-chat"
+        "GitHub.copilot-chat",
       ],
     },
   },
@@ -25,7 +31,7 @@
   // "forwardPorts": [],
 
   // Use 'postCreateCommand' to run commands after the container is created.
-  // "postCreateCommand": "yarn install",
+  "postCreateCommand": "npm install",
 
   // Configure tool-specific properties.
   // "customizations": {},

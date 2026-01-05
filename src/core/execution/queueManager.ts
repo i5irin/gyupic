@@ -25,8 +25,6 @@ type JobRunContext = {
   runId: number;
   settingsRev: number;
   settings: ConvertSettings;
-  pickupId: AppState['pickupId'];
-  deliveryId: AppState['deliveryId'];
 };
 
 export default class QueueManager {
@@ -114,8 +112,6 @@ export default class QueueManager {
       runId: snapshotSource.runId,
       settingsRev: snapshotSource.settingsRev,
       settings: snapshotSource.settings,
-      pickupId: snapshotSource.pickupId,
-      deliveryId: snapshotSource.deliveryId,
     };
 
     this.running.set(item.id, context);
@@ -124,10 +120,11 @@ export default class QueueManager {
     const params = {
       sourceFile: item.src.file,
       jpegQuality: context.settings.jpegQuality,
-      pickupId: context.pickupId,
-      deliveryId: context.deliveryId,
+      outputFormat: context.settings.outputFormat,
+      filenameStrategy: context.settings.filenameStrategy,
+      filenameTimestampSource: context.settings.filenameTimestampSource,
+      timestampWriteMode: context.settings.timestampWriteMode,
       presetId: context.settings.presetId,
-      metadataPolicyMode: context.settings.metadataPolicyMode,
     };
 
     this.workerPool
@@ -154,7 +151,14 @@ export default class QueueManager {
       return;
     }
 
-    const previewUrl = this.createObjectURL(result.file);
+    const { file: normalizedFile, warning: cloneWarning } =
+      this.reconcileOutputFile(result);
+    const combinedWarning = this.combineWarnings(
+      result.warningReason,
+      result.filenameWarning,
+      cloneWarning,
+    );
+    const previewUrl = this.createObjectURL(normalizedFile);
 
     if (this.isCanceled(itemId)) {
       this.revokeObjectURL(previewUrl);
@@ -171,14 +175,14 @@ export default class QueueManager {
       type: 'FINISH_ITEM',
       id: itemId,
       out: {
-        file: result.file,
+        file: normalizedFile,
         previewUrl,
         sizeBefore: result.sizeBefore,
         sizeAfter: result.sizeAfter,
         reductionRatio: result.reductionRatio,
         metadata: result.metadata,
       },
-      warningReason: result.warningReason,
+      warningReason: combinedWarning,
     });
     this.canceledIds.delete(itemId);
   }
@@ -205,6 +209,40 @@ export default class QueueManager {
     const jobError = this.createJobError(error);
     this.dispatch({ type: 'FAIL_ITEM', id: itemId, error: jobError });
     this.canceledIds.delete(itemId);
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  private reconcileOutputFile(result: ProcessingPipelineResult): {
+    file: File;
+    warning?: string;
+  } {
+    if (
+      !result.expectedFileName ||
+      result.file.name === result.expectedFileName
+    ) {
+      return { file: result.file };
+    }
+    const repaired = new File([result.file], result.expectedFileName, {
+      type: result.file.type,
+      lastModified: result.file.lastModified,
+    });
+    return {
+      file: repaired,
+      warning: 'File name restored after worker transfer.',
+    };
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  private combineWarnings(
+    ...messages: Array<string | undefined>
+  ): string | undefined {
+    const filtered = messages.filter(
+      (msg): msg is string => typeof msg === 'string' && msg.length > 0,
+    );
+    if (filtered.length === 0) {
+      return undefined;
+    }
+    return filtered.join(' / ');
   }
 
   private isCanceled(itemId: string): boolean {

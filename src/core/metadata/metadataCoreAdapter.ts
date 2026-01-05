@@ -1,0 +1,419 @@
+import type {
+  FilenameStrategy,
+  FilenameTimestampSource,
+  OutputFormat,
+  TimestampWriteMode,
+} from '../../domain/presets';
+import type { MetadataRequirements } from '../../domain/metadataRequirements';
+import type {
+  DerivedTimestamp,
+  MetadataGuaranteeStatus,
+} from '../../state/jobTypes';
+import {
+  applyTimestamp as applyLegacyMetadata,
+  type ApplyResult as LegacyApplyResult,
+  deriveTimestamp as deriveLegacyMetadata,
+  parseExifDateTime,
+} from './metadataPolicy';
+import type {
+  DerivedCaptureTime,
+  DerivedMetadataResult,
+  FilenamePlanResult,
+  MetadataApplyContext,
+  MetadataWarning,
+} from './wasmBridge';
+import { getMetadataCore } from './wasmBridge';
+
+type DeriveOptions = {
+  file: File;
+  captureTimeEnabled: boolean;
+  timestampWriteMode: TimestampWriteMode;
+};
+
+type ApplyOptions = {
+  file: File;
+  session: MetadataCoreDeriveSession;
+  requirements: MetadataRequirements;
+  outputFormat: OutputFormat;
+  fileNameOverride?: string;
+  lastModifiedOverrideMs?: number;
+  gpsEnabled?: boolean;
+  preserveXmp?: boolean;
+  preserveXmpManagement?: boolean;
+};
+
+export type MetadataCoreDeriveSession = {
+  mode: 'wasm' | 'fallback';
+  captureTimeEnabled: boolean;
+  derived: DerivedTimestamp;
+  captureTime?: DerivedCaptureTime;
+  warnings: MetadataWarning[];
+};
+
+export type MetadataCoreApplyResult = {
+  file: File;
+  status: MetadataGuaranteeStatus;
+  warningReason?: string;
+  warnings: MetadataWarning[];
+  captureTimeBadge?: string;
+};
+
+function deriveLegacyBadge(
+  result: LegacyApplyResult,
+  requirements: MetadataRequirements,
+): string {
+  if (result.status === 'guaranteed') {
+    return requirements.captureTime.mode === 'from-file-modified'
+      ? 'from-mtime'
+      : 'original';
+  }
+  if (result.status === 'best-effort') {
+    return 'from-mtime';
+  }
+  return 'not-applied';
+}
+
+function mapLegacyApplyResult(
+  result: LegacyApplyResult,
+  requirements: MetadataRequirements,
+): MetadataCoreApplyResult {
+  return {
+    file: result.file,
+    status: result.status,
+    warningReason: result.warningReason,
+    warnings: result.warningReason
+      ? [
+          {
+            code: 'NOT_IMPLEMENTED',
+            field: 'capture-time',
+            message: result.warningReason,
+          } as MetadataWarning,
+        ]
+      : [],
+    captureTimeBadge: deriveLegacyBadge(result, requirements),
+  };
+}
+
+function minutesToOffset(minutes?: number): string | undefined {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes)) {
+    return undefined;
+  }
+  const sign = minutes >= 0 ? '+' : '-';
+  const abs = Math.abs(minutes);
+  const hours = Math.floor(abs / 60)
+    .toString()
+    .padStart(2, '0');
+  const mins = Math.floor(abs % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${sign}${hours}:${mins}`;
+}
+
+function convertCaptureTimeToDerived(
+  captureTime?: DerivedCaptureTime,
+): DerivedTimestamp {
+  if (!captureTime) {
+    return { kind: 'unavailable' };
+  }
+  if (captureTime.source === 'exif' && captureTime.value) {
+    return {
+      kind: 'exif',
+      field: 'DateTimeOriginal',
+      value: captureTime.value,
+      offset: minutesToOffset(captureTime.offsetMinutes),
+    };
+  }
+  if (
+    captureTime.source === 'file' &&
+    typeof captureTime.timestampMs === 'number'
+  ) {
+    return {
+      kind: 'file',
+      value: captureTime.timestampMs,
+      offset: minutesToOffset(captureTime.offsetMinutes),
+    };
+  }
+  return { kind: 'unavailable' };
+}
+
+function mapDeriveResult(
+  result: DerivedMetadataResult,
+  captureTimeEnabled: boolean,
+): MetadataCoreDeriveSession {
+  return {
+    mode: 'wasm',
+    captureTimeEnabled,
+    derived: convertCaptureTimeToDerived(result.captureTime),
+    captureTime: result.captureTime,
+    warnings: result.warnings,
+  };
+}
+
+function buildDeriveContext(options: DeriveOptions): MetadataDeriveContext {
+  return {
+    captureTimeEnabled: options.captureTimeEnabled,
+    timestampWriteMode: options.timestampWriteMode,
+    lastModifiedMs: Number.isFinite(options.file.lastModified)
+      ? options.file.lastModified
+      : undefined,
+  };
+}
+
+async function fileToUint8Array(file: File): Promise<Uint8Array> {
+  const buffer = await file.arrayBuffer();
+  return new Uint8Array(buffer);
+}
+
+async function tryDeriveWithWasm(
+  options: DeriveOptions,
+): Promise<MetadataCoreDeriveSession | null> {
+  try {
+    const bindings = await getMetadataCore();
+    const inputBytes = await fileToUint8Array(options.file);
+    const context = buildDeriveContext(options);
+    const result = await bindings.derive_metadata(inputBytes, context);
+    return mapDeriveResult(result, options.captureTimeEnabled);
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn('metadata-core: derive via WASM failed, falling back', error);
+    return null;
+  }
+}
+
+export async function deriveTimestampWithMetadataCore(
+  options: DeriveOptions,
+): Promise<MetadataCoreDeriveSession> {
+  const wasmResult = await tryDeriveWithWasm(options);
+  if (wasmResult) {
+    return wasmResult;
+  }
+  const legacyDerived = await deriveLegacyMetadata({ file: options.file });
+  return {
+    mode: 'fallback',
+    captureTimeEnabled: options.captureTimeEnabled,
+    derived: legacyDerived,
+    warnings: [],
+  };
+}
+
+function buildApplyContext(options: ApplyOptions): MetadataApplyContext {
+  return {
+    captureTimeEnabled: options.session.captureTimeEnabled,
+    captureTime: options.session.captureTime,
+    timestampWriteMode: options.requirements.captureTime.mode,
+    needsCaptureTimeForFilenames:
+      options.requirements.needsCaptureTimeForFilenames,
+    outputFormat: options.outputFormat,
+    fileNameOverride: options.fileNameOverride,
+    lastModifiedOverrideMs: options.lastModifiedOverrideMs,
+    gpsEnabled: Boolean(options.gpsEnabled),
+    preserveXmp: Boolean(options.preserveXmp),
+    preserveXmpManagement: Boolean(options.preserveXmpManagement),
+  };
+}
+
+function buildFileFromWasmResponse(
+  output: Uint8Array,
+  options: ApplyOptions,
+  response: MetadataApplyResult,
+): File {
+  const safeBytes = new Uint8Array(output);
+
+  const blob = new Blob([safeBytes], {
+    type: options.file.type || 'application/octet-stream',
+  });
+  const fileOptions: FilePropertyBag = {
+    type: options.file.type || 'application/octet-stream',
+  };
+  if (
+    typeof response.nextLastModifiedMs === 'number' &&
+    Number.isFinite(response.nextLastModifiedMs)
+  ) {
+    fileOptions.lastModified = Math.trunc(response.nextLastModifiedMs);
+  }
+  const targetName = options.fileNameOverride || options.file.name;
+  return new File([blob], targetName, fileOptions);
+}
+
+function evaluateGuaranteeStatus(options: {
+  requirements: MetadataRequirements;
+  captureApplied: boolean;
+  warnings: MetadataWarning[];
+}): {
+  status: MetadataGuaranteeStatus;
+  warningReason?: string;
+} {
+  const { requirements, captureApplied, warnings } = options;
+  if (!requirements.captureTime.enabled) {
+    return { status: 'skipped' };
+  }
+  if (captureApplied) {
+    return { status: 'guaranteed' };
+  }
+  return {
+    status: 'warning',
+    warningReason:
+      warnings[0]?.message ||
+      'Capture time could not be applied to the output image.',
+  };
+}
+
+async function tryApplyWithWasm(
+  options: ApplyOptions,
+): Promise<MetadataCoreApplyResult | null> {
+  try {
+    const bindings = await getMetadataCore();
+    const encodedBytes = await fileToUint8Array(options.file);
+    const context = buildApplyContext(options);
+    const response = await bindings.apply_metadata(encodedBytes, context);
+    const file = buildFileFromWasmResponse(response.output, options, response);
+    return {
+      file,
+      ...evaluateGuaranteeStatus({
+        requirements: options.requirements,
+        captureApplied: response.appliedFlags.captureTime,
+        warnings: response.warnings,
+      }),
+      warnings: response.warnings,
+      captureTimeBadge: response.captureTimeBadge,
+    };
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn('metadata-core: apply via WASM failed, falling back', error);
+    return null;
+  }
+}
+
+export async function applyMetadataWithMetadataCore(
+  options: ApplyOptions,
+): Promise<MetadataCoreApplyResult> {
+  if (options.session.mode === 'wasm') {
+    const wasmResult = await tryApplyWithWasm(options);
+    if (wasmResult) {
+      return wasmResult;
+    }
+  }
+
+  const legacyResult = await applyLegacyMetadata({
+    file: options.file,
+    derived: options.session.derived,
+    requirements: options.requirements,
+    fileNameOverride: options.fileNameOverride,
+    lastModifiedOverride: options.lastModifiedOverrideMs,
+  });
+
+  return mapLegacyApplyResult(legacyResult, options.requirements);
+}
+
+type PlanFilenameOptions = {
+  sourceFile: File;
+  filenameStrategy: FilenameStrategy;
+  filenameTimestampSource: FilenameTimestampSource;
+  outputFormat: OutputFormat;
+  session: MetadataCoreDeriveSession;
+};
+
+function deriveCaptureTimestampMs(
+  session: MetadataCoreDeriveSession,
+): number | undefined {
+  const captureSource = session.captureTime;
+  if (
+    captureSource?.source === 'exif' &&
+    typeof captureSource.timestampMs === 'number' &&
+    Number.isFinite(captureSource.timestampMs)
+  ) {
+    return captureSource.timestampMs;
+  }
+  if (captureSource?.source === 'exif' && captureSource.value) {
+    const offset =
+      typeof captureSource.offsetMinutes === 'number'
+        ? minutesToOffset(captureSource.offsetMinutes)
+        : undefined;
+    const parsed = parseExifDateTime(captureSource.value, offset ?? undefined);
+    if (parsed !== null) {
+      return parsed;
+    }
+  }
+  if (session.derived.kind === 'exif') {
+    return (
+      parseExifDateTime(
+        session.derived.value,
+        session.derived.offset ?? undefined,
+      ) ?? undefined
+    );
+  }
+  return undefined;
+}
+
+function deriveFileTimestampMs(options: {
+  session: MetadataCoreDeriveSession;
+  sourceFile: File;
+}): number | undefined {
+  const { session, sourceFile } = options;
+  const captureSource = session.captureTime;
+  if (
+    captureSource?.source === 'file' &&
+    typeof captureSource.timestampMs === 'number' &&
+    Number.isFinite(captureSource.timestampMs)
+  ) {
+    return captureSource.timestampMs;
+  }
+  if (Number.isFinite(sourceFile.lastModified) && sourceFile.lastModified > 0) {
+    return sourceFile.lastModified;
+  }
+  if (session.derived.kind === 'file') {
+    return session.derived.value;
+  }
+  return undefined;
+}
+
+function deriveTimestampMsForPlan(options: {
+  session: MetadataCoreDeriveSession;
+  filenameTimestampSource: FilenameTimestampSource;
+  sourceFile: File;
+}): number | undefined {
+  const { session, filenameTimestampSource, sourceFile } = options;
+  if (filenameTimestampSource === 'captureTime') {
+    return deriveCaptureTimestampMs(session);
+  }
+  return deriveFileTimestampMs({ session, sourceFile });
+}
+
+export async function planFilenameWithMetadataCore(
+  options: PlanFilenameOptions,
+): Promise<FilenamePlanResult> {
+  if (options.session.mode !== 'wasm') {
+    throw new Error(
+      'Filename planning via WASM is unavailable in fallback mode.',
+    );
+  }
+  const bindings = await getMetadataCore();
+  const timestampMs = deriveTimestampMsForPlan({
+    session: options.session,
+    filenameTimestampSource: options.filenameTimestampSource,
+    sourceFile: options.sourceFile,
+  });
+  const context = {
+    sourceName: options.sourceFile.name ?? '',
+    filenameStrategy: options.filenameStrategy,
+    outputFormat: options.outputFormat,
+    timestampMs,
+  };
+  return bindings.plan_filename(context);
+}
+
+type MetadataDeriveContext = {
+  captureTimeEnabled: boolean;
+  timestampWriteMode: TimestampWriteMode;
+  lastModifiedMs?: number;
+};
+
+type MetadataApplyResult = {
+  output: Uint8Array;
+  appliedFlags: {
+    captureTime: boolean;
+  };
+  warnings: MetadataWarning[];
+  captureTimeBadge?: string;
+  nextLastModifiedMs?: number;
+};

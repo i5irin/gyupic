@@ -1,6 +1,14 @@
 /// <reference lib="webworker" />
 
+import initMetadataCore, {
+  metadata_spec_version as wasmMetadataSpecVersion,
+  derive_metadata as wasmDeriveMetadata,
+  apply_metadata as wasmApplyMetadata,
+  plan_filename as wasmPlanFilename,
+} from 'metadata_core/metadata_core';
 import { runProcessingPipeline } from '../core/pipeline/processingPipeline';
+import { configureMetadataCoreLoader } from '../core/metadata/wasmBridge';
+
 import type {
   WorkerRequestMessage,
   WorkerResponseMessage,
@@ -9,6 +17,16 @@ import {
   ProcessingPipelineError,
   asProcessingPipelineError,
 } from '../core/pipeline/processingErrors';
+
+configureMetadataCoreLoader(async () => {
+  await initMetadataCore();
+  return {
+    metadata_spec_version: wasmMetadataSpecVersion,
+    derive_metadata: wasmDeriveMetadata,
+    apply_metadata: wasmApplyMetadata,
+    plan_filename: wasmPlanFilename,
+  };
+});
 
 declare const self: DedicatedWorkerGlobalScope;
 
