@@ -3,6 +3,9 @@
 This document describes how work is tracked and delivered in this repository.
 It is intentionally tooling-agnostic and should work for any contributor environment.
 
+> Start here: If you are new to contributing, please read **CONTRIBUTING.md** first.
+> This document is the detailed workflow reference used by maintainers and reviewers.
+
 ## Source of truth
 
 - **Issues are the source of truth** for scope, acceptance criteria, and test notes.
