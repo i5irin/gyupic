@@ -1,0 +1,118 @@
+name: Task
+description: Planned work item (feature, refactor, docs, chore)
+title: '[Task] '
+labels: ['type:task']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to contribute!
+
+        **Please note**
+        - Issues are the source of truth.
+        - The Project board is used for status (Inbox/Ready/In Progress/In Review/Blocked/Done).
+        - If you are unsure about labels, submit the issue anyway; it will be triaged.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What are we trying to achieve?
+      placeholder: 'e.g., Ensure metadata migration preserves XMP best-effort without warnings.'
+    validations:
+      required: true
+
+  - type: textarea
+    id: background
+    attributes:
+      label: Background / context
+      description: Why is this needed? Link related issues/PRs/docs if available.
+      placeholder: "- Related: #123\n- Docs: docs/requirements.md"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which area does this touch most?
+      options:
+        - ui
+        - logic
+        - tests
+        - docs
+        - devx
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How urgent/important is this?
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope / non-goals
+      description: What is in scope? What is explicitly out of scope?
+      placeholder: |
+        **Scope**
+        - ...
+
+        **Non-goals**
+        - ...
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checklist of what must be true to close this issue.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: manual_test
+    attributes:
+      label: Manual test scenario (Phase 3/4)
+      description: Provide a short scenario + expected result. If not applicable, write "N/A".
+      placeholder: |
+        Steps:
+        1) ...
+        2) ...
+
+        Expected:
+        - ...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: docs_impact
+    attributes:
+      label: Docs impact
+      description: Check docs that may need updates.
+      options:
+        - label: 'Update docs/WORKFLOW.md'
+          required: false
+        - label: 'No doc updates needed'
+          required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Implementation notes (optional)
+      description: Suggested approach, pitfalls, or references. Keep non-binding.
+      placeholder: '- Consider state transitions and edge cases...'
+    validations:
+      required: false
