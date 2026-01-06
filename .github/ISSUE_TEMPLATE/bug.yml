@@ -1,0 +1,92 @@
+name: Bug report
+description: Something is broken or behaving unexpectedly
+title: '[Bug] '
+labels: ['type:bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please include as much detail as you reasonably can.
+        If you are unsure, submit anyway — it will be triaged.
+
+        **Status is tracked on the Project board** (Inbox/Ready/In Progress/In Review/Blocked/Done).
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened?
+      description: Describe the problem.
+      placeholder: 'e.g., Exported images lose capture time when preset "Return to Photos" is enabled.'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps. Attach sample files if possible.
+      placeholder: |
+        1) ...
+        2) ...
+        3) ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser / OS / device, and anything relevant.
+      placeholder: |
+        - Device:
+        - OS:
+        - Browser:
+    validations:
+      required: false
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - ui
+        - logic
+        - tests
+        - docs
+        - devx
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - high
+        - medium
+        - low
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots (optional)
+      description: Paste logs or screenshots if available. Remove sensitive information.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: docs_impact
+    attributes:
+      label: Docs impact
+      options:
+        - label: 'No doc updates needed'
+          required: false
