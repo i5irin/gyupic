@@ -1,4 +1,9 @@
-import type { JobItem, JobStatus, JobErrorInfo } from './jobTypes';
+import type {
+  JobItem,
+  JobStatus,
+  JobErrorInfo,
+  MetadataWarning,
+} from './jobTypes';
 
 export type GridActionState = {
   canRetry: boolean;
@@ -14,7 +19,7 @@ export type GridItem = {
   status: JobStatus;
   isNew: boolean;
   error?: JobErrorInfo;
-  warningReason?: string;
+  warnings: MetadataWarning[];
   actions: GridActionState;
 };
 
@@ -39,7 +44,7 @@ export function selectGridItems(items: JobItem[]): GridItem[] {
       status: it.status,
       isNew: it.isNew,
       error: it.error,
-      warningReason: it.warningReason,
+      warnings: it.warnings ?? [],
       actions,
     };
   });

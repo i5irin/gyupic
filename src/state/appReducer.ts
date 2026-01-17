@@ -14,7 +14,7 @@ export type AppAction =
       type: 'FINISH_ITEM';
       id: string;
       out: JobItem['out'];
-      warningReason?: string;
+      warnings: JobItem['warnings'];
     }
   | { type: 'FAIL_ITEM'; id: string; error: JobErrorInfo }
   | { type: 'RETRY_ITEM'; id: string }
@@ -72,7 +72,13 @@ export default function appReducer(
       const ids = action.items.map((it) => it.id);
       return {
         ...state,
-        items: [...state.items, ...action.items],
+        items: [
+          ...state.items,
+          ...action.items.map((item) => ({
+            ...item,
+            warnings: item.warnings ?? [],
+          })),
+        ],
         lastAddedIds: ids,
       };
     }
@@ -92,14 +98,15 @@ export default function appReducer(
           status: 'processing',
           isNew: false,
           error: undefined,
-          warningReason: undefined,
+          warnings: [],
           captured: snapshot,
         })),
       };
     }
 
     case 'FINISH_ITEM': {
-      const status = action.warningReason ? 'warning' : 'done';
+      const warnings = action.warnings ?? [];
+      const status = warnings.length > 0 ? 'warning' : 'done';
       return {
         ...state,
         activeItemIds: state.activeItemIds.filter((id) => id !== action.id),
@@ -108,7 +115,7 @@ export default function appReducer(
           status,
           out: action.out,
           error: undefined,
-          warningReason: action.warningReason,
+          warnings,
         })),
       };
     }
@@ -133,7 +140,7 @@ export default function appReducer(
           status: 'queued',
           out: undefined,
           error: undefined,
-          warningReason: undefined,
+          warnings: [],
           isNew: false,
         })),
       };
@@ -158,7 +165,7 @@ export default function appReducer(
           isNew: false,
           out: undefined,
           error: undefined,
-          warningReason: undefined,
+          warnings: [],
         })),
       };
     }
@@ -175,7 +182,7 @@ export default function appReducer(
           status: 'queued',
           out: undefined,
           error: undefined,
-          warningReason: undefined,
+          warnings: [],
           isNew: false,
         })),
       };

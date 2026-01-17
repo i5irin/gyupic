@@ -223,7 +223,6 @@ type ApplyOptions = {
 export type ApplyResult = {
   file: File;
   status: MetadataGuaranteeStatus;
-  warningReason?: string;
 };
 
 type ExifTimestampField = (typeof EXIF_TIMESTAMP_FIELDS)[number];
@@ -341,27 +340,16 @@ function evaluateStatus(options: {
   success: boolean;
   requirements: MetadataRequirements;
   fallbackUsed?: boolean;
-  failureReason?: string;
-  fallbackReason?: string;
-}): { status: MetadataGuaranteeStatus; warningReason?: string } {
-  const { success, requirements, fallbackUsed, failureReason, fallbackReason } =
-    options;
+}): { status: MetadataGuaranteeStatus } {
+  const { success, requirements, fallbackUsed } = options;
   if (!requirements.captureTime.enabled) {
     return { status: 'skipped' };
   }
   if (!success) {
-    return {
-      status: 'warning',
-      warningReason: failureReason || 'Capture time could not be written.',
-    };
+    return { status: 'warning' };
   }
   if (fallbackUsed) {
-    return {
-      status: 'best-effort',
-      warningReason:
-        fallbackReason ||
-        'Best-effort: used edited/file timestamp because capture time was unavailable.',
-    };
+    return { status: 'best-effort' };
   }
   return { status: 'guaranteed' };
 }
@@ -500,7 +488,6 @@ export async function applyTimestamp({
       ...evaluateStatus({
         success: false,
         requirements,
-        failureReason: 'Timestamp unavailable.',
       }),
     };
   }
@@ -545,7 +532,6 @@ export async function applyTimestamp({
         ...evaluateStatus({
           success: false,
           requirements,
-          failureReason: 'Unsupported timestamp format.',
         }),
       };
     }
@@ -569,7 +555,6 @@ export async function applyTimestamp({
           ...evaluateStatus({
             success: false,
             requirements,
-            failureReason: 'Failed to inject Exif timestamp',
           }),
         };
       }
@@ -593,7 +578,6 @@ export async function applyTimestamp({
           ...evaluateStatus({
             success: false,
             requirements,
-            failureReason: 'Failed to inject Exif timestamp',
           }),
         };
       }
@@ -603,8 +587,6 @@ export async function applyTimestamp({
         ...evaluateStatus({
           success: false,
           requirements,
-          failureReason:
-            'Capture time injection requires the metadata core for WebP output.',
         }),
       };
     } else if (needsExif && !fallbackUsed) {
@@ -613,7 +595,6 @@ export async function applyTimestamp({
         ...evaluateStatus({
           success: false,
           requirements,
-          failureReason: 'File type does not support Exif metadata.',
         }),
       };
     }
@@ -623,7 +604,6 @@ export async function applyTimestamp({
       ...evaluateStatus({
         success: false,
         requirements,
-        failureReason: 'File type does not support Exif metadata.',
       }),
     };
   }
@@ -639,17 +619,12 @@ export async function applyTimestamp({
   }
 
   const success = needsExif ? derivedIsExif || fallbackUsed : true;
-  const fallbackReason = fallbackUsed
-    ? 'Best-effort: timestamp derived from edited/lastModified metadata.'
-    : undefined;
-
   return {
     file: workingFile,
     ...evaluateStatus({
       success,
       requirements,
       fallbackUsed,
-      fallbackReason,
     }),
   };
 }
