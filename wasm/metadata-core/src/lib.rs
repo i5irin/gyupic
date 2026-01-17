@@ -43,8 +43,7 @@ pub fn metadata_spec_version() -> String {
 pub struct MetadataWarning {
     pub code: String,
     pub field: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    pub reason: String,
     pub message: String,
 }
 
@@ -278,20 +277,7 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
     let capture_info = match capture {
         Some(info) if info.value.is_some() => info,
         _ => {
-            match context.timestamp_write_mode {
-                TimestampWriteMode::FromFileModified => {
-                    warnings.push(warning_mtime_unavailable());
-                }
-                _ => {
-                    warnings.push(warning_missing_capture_time());
-                }
-            }
-            if context.capture_time_enabled || context.needs_capture_time_for_filenames {
-                warnings.push(warning_requirement_not_met(
-                    "capture-time",
-                    "Capture time was required by the current settings but was unavailable.",
-                ));
-            }
+            warnings.push(warning_missing_capture_time());
             let response = ApplyMetadataResponse {
                 metadata_spec_version: METADATA_SPEC_VERSION.to_string(),
                 output,
@@ -309,7 +295,7 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
         TimestampWriteMode::FromFileModified
     ) && capture_info.source != "file"
     {
-        warnings.push(warning_mtime_unavailable());
+        warnings.push(warning_missing_capture_time());
     }
 
     match &context.output_format {
@@ -341,13 +327,6 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
             }
         },
         other => warnings.push(warning_unsupported_format(other.as_str())),
-    }
-
-    if !applied_flags.capture_time && context.capture_time_enabled {
-        warnings.push(warning_requirement_not_met(
-            "capture-time",
-            "Capture time could not be written to the output image.",
-        ));
     }
 
     let capture_time_badge = if applied_flags.capture_time {
@@ -394,7 +373,7 @@ pub fn plan_filename(context: JsValue) -> Result<JsValue, JsValue> {
 }
 
 fn plan_timestamped_filename(context: FilenamePlanContext) -> FilenamePlanResponse {
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     let sanitized_candidate = context
         .sanitized_base_name
         .as_deref()
@@ -410,19 +389,13 @@ fn plan_timestamped_filename(context: FilenamePlanContext) -> FilenamePlanRespon
         match normalize_timestamp_ms(context.timestamp_ms) {
             Some(value) => value,
             None => {
-                return fallback_filename_plan(
-                    "timestamp unavailable for timestamped filename strategy",
-                    warnings,
-                )
+                return fallback_filename_plan(warnings)
             }
         };
     let timestamp_string = match format_timestamp_for_filename(normalized_timestamp_ms) {
         Some(value) => value,
         None => {
-            return fallback_filename_plan(
-                "timestamp unavailable for timestamped filename strategy",
-                warnings,
-            )
+            return fallback_filename_plan(warnings)
         }
     };
 
@@ -444,10 +417,9 @@ fn plan_timestamped_filename(context: FilenamePlanContext) -> FilenamePlanRespon
 }
 
 fn fallback_filename_plan(
-    reason: &str,
     mut warnings: Vec<MetadataWarning>,
 ) -> FilenamePlanResponse {
-    warnings.push(warning_requirement_not_met("filename", reason));
+    warnings.push(warning_missing_output_filename());
     FilenamePlanResponse {
         metadata_spec_version: METADATA_SPEC_VERSION.to_string(),
         applied: false,
@@ -542,7 +514,7 @@ fn derive_capture_time_from_mtime(
     match last_modified_ms.and_then(capture_time_from_last_modified) {
         Some(info) => Some(info),
         None => {
-            warnings.push(warning_mtime_unavailable());
+            warnings.push(warning_missing_capture_time());
             None
         }
     }
@@ -584,11 +556,7 @@ fn parse_capture_time_with_reader(
     let exif_data = match Reader::new().read_from_container(&mut cursor) {
         Ok(data) => data,
         Err(ExifError::NotFound(_)) | Err(ExifError::BlankValue(_)) => return Ok(None),
-        Err(err) => {
-            return Err(warning_extract_failed(format!(
-                "failed to parse Exif metadata: {err}"
-            )))
-        }
+        Err(_err) => return Err(warning_extract_failed()),
     };
     Ok(capture_time_from_exif(&exif_data))
 }
@@ -602,11 +570,7 @@ fn parse_png_capture_time(bytes: &[u8]) -> Result<Option<CaptureTimeInfo>, Metad
     let exif_bytes = strip_exif_header(payload)?;
     let exif_data = Reader::new()
         .read_raw(exif_bytes)
-        .map_err(|err| {
-            warning_extract_failed(format!(
-                "failed to parse Exif metadata from PNG chunk: {err}"
-            ))
-        })?;
+        .map_err(|_err| warning_extract_failed())?;
     Ok(capture_time_from_exif(&exif_data))
 }
 
@@ -618,11 +582,7 @@ fn parse_webp_capture_time(bytes: &[u8]) -> Result<Option<CaptureTimeInfo>, Meta
     let exif_bytes = strip_exif_header(payload)?;
     let exif_data = Reader::new()
         .read_raw(exif_bytes)
-        .map_err(|err| {
-            warning_extract_failed(format!(
-                "failed to parse Exif metadata from WebP chunk: {err}"
-            ))
-        })?;
+        .map_err(|_err| warning_extract_failed())?;
     Ok(capture_time_from_exif(&exif_data))
 }
 
@@ -641,17 +601,13 @@ fn extract_png_exif_chunk(bytes: &[u8]) -> Result<Option<Vec<u8>>, MetadataWarni
         let chunk_type_start = cursor + 4;
         let chunk_type_end = chunk_type_start + 4;
         if chunk_type_end > bytes.len() {
-            return Err(warning_extract_failed(
-                "PNG chunk header exceeds buffer length".to_string(),
-            ));
+            return Err(warning_extract_failed());
         }
         let data_start = chunk_type_end;
         let data_end = data_start + length;
         let chunk_end = data_end + 4;
         if chunk_end > bytes.len() {
-            return Err(warning_extract_failed(
-                "PNG chunk exceeds buffer length".to_string(),
-            ));
+            return Err(warning_extract_failed());
         }
         let chunk_type = &bytes[chunk_type_start..chunk_type_end];
         if chunk_type == b"eXIf" {
@@ -682,9 +638,7 @@ fn extract_webp_exif_chunk(bytes: &[u8]) -> Result<Option<Vec<u8>>, MetadataWarn
         let data_start = cursor + 8;
         let data_end = data_start + size;
         if data_end > bytes.len() {
-            return Err(warning_extract_failed(
-                "WebP chunk exceeds buffer length".to_string(),
-            ));
+            return Err(warning_extract_failed());
         }
         if &chunk_type == b"EXIF" {
             return Ok(Some(bytes[data_start..data_end].to_vec()));
@@ -692,9 +646,7 @@ fn extract_webp_exif_chunk(bytes: &[u8]) -> Result<Option<Vec<u8>>, MetadataWarn
         let padding = size % 2;
         cursor = data_end + padding;
         if cursor > bytes.len() {
-            return Err(warning_extract_failed(
-                "WebP chunk padding exceeds buffer length".to_string(),
-            ));
+            return Err(warning_extract_failed());
         }
     }
     Ok(None)
@@ -738,9 +690,7 @@ fn is_webp_image(bytes: &[u8]) -> bool {
 fn strip_exif_header(mut payload: Vec<u8>) -> Result<Vec<u8>, MetadataWarning> {
     if payload.starts_with(&EXIF_HEADER) {
         if payload.len() <= EXIF_HEADER.len() {
-            return Err(warning_extract_failed(
-                "Exif payload is missing TIFF data after the header".to_string(),
-            ));
+            return Err(warning_extract_failed());
         }
         payload.drain(..EXIF_HEADER.len());
     }
@@ -1357,69 +1307,91 @@ enum IfdValue {
     Offset(Vec<u8>),
 }
 
-fn warning(code: &str, field: &str, reason: Option<String>, message: &str) -> MetadataWarning {
-    MetadataWarning {
-        code: code.to_string(),
-        field: field.to_string(),
-        reason,
-        message: message.to_string(),
+enum WarningCode {
+    MissingInput,
+    UnsupportedOutput,
+    ExtractFailed,
+    ApplyFailed,
+}
+
+impl WarningCode {
+    fn as_str(&self) -> &'static str {
+        match self {
+            WarningCode::MissingInput => "META_MISSING_INPUT",
+            WarningCode::UnsupportedOutput => "META_UNSUPPORTED_OUTPUT",
+            WarningCode::ExtractFailed => "META_EXTRACT_FAILED",
+            WarningCode::ApplyFailed => "META_APPLY_FAILED",
+        }
+    }
+
+    fn reason(&self) -> &'static str {
+        match self {
+            WarningCode::MissingInput => "missing in input",
+            WarningCode::UnsupportedOutput => "unsupported by output format",
+            WarningCode::ExtractFailed => "failed to extract",
+            WarningCode::ApplyFailed => "failed to apply",
+        }
     }
 }
 
-fn placeholder_warning(action: &str) -> MetadataWarning {
-    warning(
-        "NOT_IMPLEMENTED",
-        action,
-        Some("Scaffolding only".to_string()),
-        "This action is not implemented in the Rust core yet.",
-    )
+enum WarningField {
+    CaptureTime,
+    Gps,
+    Xmp,
+    AdminData,
+    OutputFilename,
+}
+
+impl WarningField {
+    fn as_str(&self) -> &'static str {
+        match self {
+            WarningField::CaptureTime => "CAPTURE_TIME",
+            WarningField::Gps => "GPS",
+            WarningField::Xmp => "XMP",
+            WarningField::AdminData => "ADMIN_DATA",
+            WarningField::OutputFilename => "OUTPUT_FILENAME",
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            WarningField::CaptureTime => "Capture time",
+            WarningField::Gps => "GPS",
+            WarningField::Xmp => "XMP",
+            WarningField::AdminData => "Administrative metadata",
+            WarningField::OutputFilename => "Output filename",
+        }
+    }
+}
+
+fn normalized_warning(code: WarningCode, field: WarningField) -> MetadataWarning {
+    let reason = code.reason();
+    MetadataWarning {
+        code: code.as_str().to_string(),
+        field: field.as_str().to_string(),
+        reason: reason.to_string(),
+        message: format!(
+            "Couldn't preserve {} ({}). Output image was created.",
+            field.label(),
+            reason
+        ),
+    }
 }
 
 fn warning_missing_capture_time() -> MetadataWarning {
-    warning(
-        "META_MISSING_INPUT",
-        "capture-time",
-        Some("capture time metadata was not found in the source".to_string()),
-        "Capture time metadata was not found in the source file.",
-    )
+    normalized_warning(WarningCode::MissingInput, WarningField::CaptureTime)
 }
 
-fn warning_extract_failed(reason: String) -> MetadataWarning {
-    warning(
-        "META_EXTRACT_FAILED",
-        "capture-time",
-        Some(reason),
-        "Failed to parse Exif metadata for capture time.",
-    )
+fn warning_extract_failed() -> MetadataWarning {
+    normalized_warning(WarningCode::ExtractFailed, WarningField::CaptureTime)
 }
 
-fn warning_requirement_not_met(field: &str, reason: &str) -> MetadataWarning {
-    warning(
-        "ORDERING_REQUIREMENT_NOT_MET",
-        field,
-        Some(reason.to_string()),
-        "The requested setting could not be satisfied.",
-    )
+fn warning_missing_output_filename() -> MetadataWarning {
+    normalized_warning(WarningCode::MissingInput, WarningField::OutputFilename)
 }
 
-fn warning_mtime_unavailable() -> MetadataWarning {
-    warning(
-        "META_MTIME_UNAVAILABLE",
-        "capture-time",
-        Some("from-file-modified mode requires a valid file timestamp".to_string()),
-        "The file modified timestamp was unavailable, so capture time could not be derived.",
-    )
-}
-
-fn warning_unsupported_format(format: &str) -> MetadataWarning {
-    warning(
-        "META_UNSUPPORTED_OUTPUT",
-        "capture-time",
-        Some(format!(
-            "capture time injection is not supported for {format} output"
-        )),
-        "Capture time injection is not supported for the selected output format.",
-    )
+fn warning_unsupported_format(_format: &str) -> MetadataWarning {
+    normalized_warning(WarningCode::UnsupportedOutput, WarningField::CaptureTime)
 }
 
 #[derive(Debug)]
@@ -1431,18 +1403,12 @@ enum ApplyFailure {
 impl ApplyFailure {
     fn into_warning(self) -> MetadataWarning {
         match self {
-            ApplyFailure::Unsupported(reason) => warning(
-                "META_UNSUPPORTED_OUTPUT",
-                "capture-time",
-                Some(reason),
-                "Capture time injection is not supported for the selected output format.",
-            ),
-            ApplyFailure::Apply(reason) => warning(
-                "META_APPLY_FAILED",
-                "capture-time",
-                Some(reason),
-                "Failed to write capture time metadata to the output image.",
-            ),
+            ApplyFailure::Unsupported(_reason) => {
+                normalized_warning(WarningCode::UnsupportedOutput, WarningField::CaptureTime)
+            }
+            ApplyFailure::Apply(_reason) => {
+                normalized_warning(WarningCode::ApplyFailed, WarningField::CaptureTime)
+            }
         }
     }
 }
