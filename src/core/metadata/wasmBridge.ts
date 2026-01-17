@@ -10,18 +10,42 @@ export type MetadataWarningCode =
   | 'META_MISSING_INPUT'
   | 'META_UNSUPPORTED_OUTPUT'
   | 'META_EXTRACT_FAILED'
-  | 'META_APPLY_FAILED'
-  | 'META_XMP_PRESERVE_FAILED'
-  | 'META_MTIME_UNAVAILABLE'
-  | 'ORDERING_REQUIREMENT_NOT_MET'
-  | 'NOT_IMPLEMENTED';
+  | 'META_APPLY_FAILED';
+
+export type MetadataWarningField =
+  | 'CAPTURE_TIME'
+  | 'GPS'
+  | 'XMP'
+  | 'ADMIN_DATA'
+  | 'OUTPUT_FILENAME';
+
+export type MetadataWarningReason =
+  | 'missing in input'
+  | 'unsupported by output format'
+  | 'failed to extract'
+  | 'failed to apply';
 
 export type MetadataWarning = {
   code: MetadataWarningCode;
-  field: string;
-  reason?: string;
+  field: MetadataWarningField;
+  reason: MetadataWarningReason;
   message: string;
 };
+
+const METADATA_WARNING_FIELD_LABELS: Record<MetadataWarningField, string> = {
+  CAPTURE_TIME: 'Capture time',
+  GPS: 'GPS',
+  XMP: 'XMP',
+  ADMIN_DATA: 'Administrative metadata',
+  OUTPUT_FILENAME: 'Output filename',
+};
+
+export function buildMetadataWarningMessage(
+  field: MetadataWarningField,
+  reason: MetadataWarningReason,
+): string {
+  return `Couldn't preserve ${METADATA_WARNING_FIELD_LABELS[field]} (${reason}). Output image was created.`;
+}
 
 export type CaptureTimeSource = 'exif' | 'file' | 'unavailable';
 

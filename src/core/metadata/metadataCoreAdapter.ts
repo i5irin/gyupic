@@ -21,8 +21,10 @@ import type {
   FilenamePlanResult,
   MetadataApplyContext,
   MetadataWarning,
+  MetadataWarningField,
+  MetadataWarningReason,
 } from './wasmBridge';
-import { getMetadataCore } from './wasmBridge';
+import { buildMetadataWarningMessage, getMetadataCore } from './wasmBridge';
 
 type DeriveOptions = {
   file: File;
@@ -77,19 +79,19 @@ function mapLegacyApplyResult(
   result: LegacyApplyResult,
   requirements: MetadataRequirements,
 ): MetadataCoreApplyResult {
+  const legacyField: MetadataWarningField = 'CAPTURE_TIME';
+  const legacyReason: MetadataWarningReason = 'failed to apply';
+  const legacyWarning: MetadataWarning = {
+    code: 'META_APPLY_FAILED',
+    field: legacyField,
+    reason: legacyReason,
+    message: buildMetadataWarningMessage(legacyField, legacyReason),
+  };
   return {
     file: result.file,
     status: result.status,
-    warningReason: result.warningReason,
-    warnings: result.warningReason
-      ? [
-          {
-            code: 'NOT_IMPLEMENTED',
-            field: 'capture-time',
-            message: result.warningReason,
-          } as MetadataWarning,
-        ]
-      : [],
+    warningReason: result.warningReason ? legacyWarning.message : undefined,
+    warnings: result.warningReason ? [legacyWarning] : [],
     captureTimeBadge: deriveLegacyBadge(result, requirements),
   };
 }
