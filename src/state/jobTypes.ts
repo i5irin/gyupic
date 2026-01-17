@@ -5,6 +5,7 @@ import type {
   PresetId,
   TimestampWriteMode,
 } from '../domain/presets';
+import type { MetadataWarning as CoreMetadataWarning } from '../core/metadata/wasmBridge';
 
 export type JobStatus =
   | 'queued'
@@ -40,13 +41,14 @@ export type MetadataGuaranteeStatus =
   | 'warning'
   | 'skipped';
 
+export type MetadataWarning = CoreMetadataWarning;
+
 export type JobMetadataInfo = {
   presetId: PresetId;
   derived: DerivedTimestamp;
   status: MetadataGuaranteeStatus;
   reason?: string;
   captureTimeBadge?: string;
-  warnings?: string[];
 };
 
 export type JobErrorCode =
@@ -83,7 +85,7 @@ export type JobItem = {
   src: JobSource;
   out?: JobOutput;
   error?: JobErrorInfo;
-  warningReason?: string;
+  warnings?: MetadataWarning[];
   captured?: JobCaptureSnapshot;
 };
 

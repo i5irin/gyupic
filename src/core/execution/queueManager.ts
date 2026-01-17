@@ -151,13 +151,7 @@ export default class QueueManager {
       return;
     }
 
-    const { file: normalizedFile, warning: cloneWarning } =
-      this.reconcileOutputFile(result);
-    const combinedWarning = this.combineWarnings(
-      result.warningReason,
-      result.filenameWarning,
-      cloneWarning,
-    );
+    const { file: normalizedFile } = this.reconcileOutputFile(result);
     const previewUrl = this.createObjectURL(normalizedFile);
 
     if (this.isCanceled(itemId)) {
@@ -182,7 +176,7 @@ export default class QueueManager {
         reductionRatio: result.reductionRatio,
         metadata: result.metadata,
       },
-      warningReason: combinedWarning,
+      warnings: result.warnings,
     });
     this.canceledIds.delete(itemId);
   }
@@ -214,7 +208,6 @@ export default class QueueManager {
   // eslint-disable-next-line class-methods-use-this
   private reconcileOutputFile(result: ProcessingPipelineResult): {
     file: File;
-    warning?: string;
   } {
     if (
       !result.expectedFileName ||
@@ -226,23 +219,7 @@ export default class QueueManager {
       type: result.file.type,
       lastModified: result.file.lastModified,
     });
-    return {
-      file: repaired,
-      warning: 'File name restored after worker transfer.',
-    };
-  }
-
-  // eslint-disable-next-line class-methods-use-this
-  private combineWarnings(
-    ...messages: Array<string | undefined>
-  ): string | undefined {
-    const filtered = messages.filter(
-      (msg): msg is string => typeof msg === 'string' && msg.length > 0,
-    );
-    if (filtered.length === 0) {
-      return undefined;
-    }
-    return filtered.join(' / ');
+    return { file: repaired };
   }
 
   private isCanceled(itemId: string): boolean {

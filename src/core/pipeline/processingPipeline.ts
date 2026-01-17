@@ -10,7 +10,11 @@ import {
   buildMetadataRequirements,
   shouldDeriveCaptureTime,
 } from '../../domain/metadataRequirements';
-import type { DerivedTimestamp, JobMetadataInfo } from '../../state/jobTypes';
+import type {
+  DerivedTimestamp,
+  JobMetadataInfo,
+  MetadataWarning,
+} from '../../state/jobTypes';
 import {
   applyMetadataWithMetadataCore,
   deriveTimestampWithMetadataCore,
@@ -18,6 +22,7 @@ import {
   type MetadataCoreDeriveSession,
 } from '../metadata/metadataCoreAdapter';
 import { parseExifDateTime } from '../metadata/metadataPolicy';
+import { buildMetadataWarningMessage } from '../metadata/wasmBridge';
 import {
   canUseOffscreenConversion,
   convertWithOffscreenCanvas,
@@ -41,8 +46,7 @@ export type ProcessingPipelineResult = {
   sizeAfter: number;
   reductionRatio: number;
   metadata: JobMetadataInfo;
-  warningReason?: string;
-  filenameWarning?: string;
+  warnings: MetadataWarning[];
   expectedFileName?: string;
 };
 
@@ -110,7 +114,7 @@ function formatTimestampForFilename(date: Date): string {
 type FilenamePlan = {
   targetName?: string;
   timestampMs?: number;
-  warning?: string;
+  warnings: MetadataWarning[];
 };
 
 function resolveLegacyTimestampMs(options: {
@@ -149,7 +153,7 @@ function buildLegacyFilenamePlan(options: {
     outputFormat,
   } = options;
   if (filenameStrategy === 'keep-original') {
-    return {};
+    return { warnings: [] };
   }
   const timestampMs = resolveLegacyTimestampMs({
     filenameTimestampSource,
@@ -158,7 +162,17 @@ function buildLegacyFilenamePlan(options: {
   });
   if (!timestampMs) {
     return {
-      warning: 'Rename skipped: Timestamp unavailable.',
+      warnings: [
+        {
+          code: 'META_MISSING_INPUT',
+          field: 'OUTPUT_FILENAME',
+          reason: 'missing in input',
+          message: buildMetadataWarningMessage(
+            'OUTPUT_FILENAME',
+            'missing in input',
+          ),
+        },
+      ],
     };
   }
   const date = new Date(timestampMs);
@@ -168,6 +182,7 @@ function buildLegacyFilenamePlan(options: {
   return {
     targetName: `${timestamp}_${baseName}${config.extension}`,
     timestampMs,
+    warnings: [],
   };
 }
 
@@ -188,7 +203,7 @@ async function planOutputFilename(options: {
     session,
   } = options;
   if (filenameStrategy === 'keep-original') {
-    return {};
+    return { warnings: [] };
   }
   if (session.mode === 'wasm') {
     try {
@@ -206,10 +221,7 @@ async function planOutputFilename(options: {
           Number.isFinite(planResult.timestampMs)
             ? planResult.timestampMs
             : undefined,
-        warning:
-          Array.isArray(planResult.warnings) && planResult.warnings.length > 0
-            ? planResult.warnings.map((warning) => warning.message).join(' / ')
-            : undefined,
+        warnings: planResult.warnings ?? [],
       };
     } catch (error) {
       // eslint-disable-next-line no-console
@@ -314,10 +326,10 @@ export async function runProcessingPipeline(
     presetId,
     derived: derivedTimestamp,
     status: applyResult.status,
-    reason: applyResult.warningReason,
+    reason: applyResult.warnings[0]?.message,
     captureTimeBadge: applyResult.captureTimeBadge,
-    warnings: applyResult.warnings.map((warning) => warning.message),
   };
+  const warnings = [...applyResult.warnings, ...filenamePlan.warnings];
 
   return {
     file: finalFile,
@@ -325,8 +337,7 @@ export async function runProcessingPipeline(
     sizeAfter,
     reductionRatio,
     metadata,
-    warningReason: applyResult.warningReason,
-    filenameWarning: filenamePlan.warning,
+    warnings,
     expectedFileName: finalFile.name,
   };
 }

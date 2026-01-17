@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import styles from './ItemsGrid.module.css';
 import type { GridItem } from '../state/selectors';
 
@@ -67,6 +67,7 @@ export default function ItemsGrid({
   queueSummary,
 }: Props) {
   const targetElRef = useRef<HTMLDivElement | null>(null);
+  const [openWarningId, setOpenWarningId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!scrollToId) {
@@ -147,9 +148,38 @@ export default function ItemsGrid({
                   {it.error.message}
                 </div>
               )}
-              {it.status === 'warning' && it.warningReason && (
-                <div className={styles.warning} title={it.warningReason}>
-                  {it.warningReason}
+              {it.status === 'warning' && it.warnings.length > 0 && (
+                <div
+                  className={styles.warningWrap}
+                  data-open={openWarningId === it.id}
+                >
+                  <button
+                    type="button"
+                    className={styles.warningBadge}
+                    aria-expanded={openWarningId === it.id}
+                    aria-controls={`warning-list-${it.id}`}
+                    onClick={() =>
+                      setOpenWarningId((prev) =>
+                        prev === it.id ? null : it.id,
+                      )
+                    }
+                  >
+                    Warnings {it.warnings.length}
+                  </button>
+                  <div
+                    id={`warning-list-${it.id}`}
+                    className={styles.warningList}
+                    role="status"
+                  >
+                    {it.warnings.map((warning, index) => (
+                      <div
+                        key={`${it.id}-warning-${warning.code}-${index}`}
+                        className={styles.warningItem}
+                      >
+                        {warning.message}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

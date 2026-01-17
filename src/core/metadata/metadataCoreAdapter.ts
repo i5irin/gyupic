@@ -55,7 +55,6 @@ export type MetadataCoreDeriveSession = {
 export type MetadataCoreApplyResult = {
   file: File;
   status: MetadataGuaranteeStatus;
-  warningReason?: string;
   warnings: MetadataWarning[];
   captureTimeBadge?: string;
 };
@@ -87,11 +86,12 @@ function mapLegacyApplyResult(
     reason: legacyReason,
     message: buildMetadataWarningMessage(legacyField, legacyReason),
   };
+  const shouldWarn =
+    result.status === 'warning' || result.status === 'best-effort';
   return {
     file: result.file,
     status: result.status,
-    warningReason: result.warningReason ? legacyWarning.message : undefined,
-    warnings: result.warningReason ? [legacyWarning] : [],
+    warnings: shouldWarn ? [legacyWarning] : [],
     captureTimeBadge: deriveLegacyBadge(result, requirements),
   };
 }
@@ -240,24 +240,15 @@ function buildFileFromWasmResponse(
 function evaluateGuaranteeStatus(options: {
   requirements: MetadataRequirements;
   captureApplied: boolean;
-  warnings: MetadataWarning[];
-}): {
-  status: MetadataGuaranteeStatus;
-  warningReason?: string;
-} {
-  const { requirements, captureApplied, warnings } = options;
+}): MetadataGuaranteeStatus {
+  const { requirements, captureApplied } = options;
   if (!requirements.captureTime.enabled) {
-    return { status: 'skipped' };
+    return 'skipped';
   }
   if (captureApplied) {
-    return { status: 'guaranteed' };
+    return 'guaranteed';
   }
-  return {
-    status: 'warning',
-    warningReason:
-      warnings[0]?.message ||
-      'Capture time could not be applied to the output image.',
-  };
+  return 'warning';
 }
 
 async function tryApplyWithWasm(
@@ -271,10 +262,9 @@ async function tryApplyWithWasm(
     const file = buildFileFromWasmResponse(response.output, options, response);
     return {
       file,
-      ...evaluateGuaranteeStatus({
+      status: evaluateGuaranteeStatus({
         requirements: options.requirements,
         captureApplied: response.appliedFlags.captureTime,
-        warnings: response.warnings,
       }),
       warnings: response.warnings,
       captureTimeBadge: response.captureTimeBadge,
