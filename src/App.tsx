@@ -20,6 +20,7 @@ import {
   type PresetId,
   type OutputFormat,
   type FilenameStrategy,
+  type FilenameTimestampSource,
   type TimestampWriteMode,
   type InputBehavior,
 } from './domain/presets';
@@ -361,6 +362,7 @@ export default function App() {
       jpegQuality: number;
       outputFormat: OutputFormat;
       filenameStrategy: FilenameStrategy;
+      filenameTimestampSource: FilenameTimestampSource;
       timestampWriteMode: TimestampWriteMode;
       rewriteExif: boolean;
       injectFromEditedTime: boolean;
@@ -369,8 +371,11 @@ export default function App() {
       const qualityPct = Math.round(nextSettings.jpegQuality * 100);
       const formatLabel = nextSettings.outputFormat.toUpperCase();
       const filenameLabel =
+        // eslint-disable-next-line no-nested-ternary
         nextSettings.filenameStrategy === 'timestamped'
-          ? 'Timestamped names'
+          ? nextSettings.filenameTimestampSource === 'mtime'
+            ? 'Timestamped (mtime)'
+            : 'Timestamped (capture)'
           : 'Keep names';
       const timestampLabel = (() => {
         switch (nextSettings.timestampWriteMode) {
@@ -515,6 +520,7 @@ export default function App() {
         currentJpegQuality={state.settings.jpegQuality}
         currentOutputFormat={state.settings.outputFormat}
         currentFilenameStrategy={state.settings.filenameStrategy}
+        currentFilenameTimestampSource={state.settings.filenameTimestampSource}
         currentTimestampMode={state.settings.timestampWriteMode}
         rewriteExif={state.settings.rewriteExif}
         injectFromEditedTime={state.settings.injectFromEditedTime}
