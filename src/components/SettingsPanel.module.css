@@ -116,3 +116,30 @@
   color: #4a3ca6;
   background: #f1ecff;
 }
+
+.settings-panel-usage-list {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-panel-hint-block {
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0.8;
+}
+
+.settings-panel-advanced-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-panel-checkbox-label {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

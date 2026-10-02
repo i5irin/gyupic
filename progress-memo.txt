@@ -1,0 +1,22 @@
+# progress-memo（コミット対象外）
+
+このファイルは Phase3/Phase4 の進捗・懸念・引き継ぎ事項を共有するためのメモ。  
+チャットを切り替える／引き継ぐ際は、この内容を冒頭に貼り付ける。  
+**更新ルール**:
+- 主要な方針決定・タスク完了・課題発生の度に必ず追記する（最少1日1回以上）。
+- エントリは日付順で追加し、最新情報を上に置く。
+- 進捗・仕掛・懸念・次アクションをそれぞれ箇条書きで必ず書く。
+
+---
+
+## 2026-01-02 (午後)
+- **進捗**: 要件書/設計書をシナリオプリセット仕様へ更新し、`docs/tests/preset-scenarios.ja.md` を端末実態（iPhone 17 Pro / macOS 15.6.1 / Windows 11 Parallels）ベースのテンプレに差し替え。`memo.txt` にPreset刷新内容を追記。
+- **仕掛**: コード全面更新（domain presets, App/Settings UI, QueueManager, metadataPolicy, pipeline, worker params）を進行中。高度設定UIやログ整備をコードへ反映させるタスクが残っている。
+- **懸念**: 実装切り替え中はビルド失敗やwarning表示の回 regressions リスクが高い。MetadataPolicyやWorker通信の型変更が広範囲なので、テスト未整備の箇所は特に注意が必要。
+- **次アクション**: (1) Preset/Orderingモデルの実装差し替えを完了し、`npm run build` で型崩れを確認。(2) preset-scenarios の最初の実測ログを記入。(3) progress-memo を都度更新し、引き継ぎ時はこのファイル冒頭を貼るルールを徹底。
+
+## 2026-01-02
+- **進捗**: 新Presetモデル方針を確定（pickup/delivery/guarantee概念を廃止し、用途ベースのシナリオPresetへ移行）。`memo.txt` を更新済み。
+- **仕掛**: 要件書/設計書の刷新、Presetシナリオベースのテストテンプレ再構築。
+- **懸念**: MetadataPolicy / QueueManager が deliveryId 前提のため構造変更が大きい。テストログの再スタート時に旧シナリオとの比較データが残らない点に注意。
+- **次アクション**: (1) docs/requirements.ja.md と docs/design.ja.md を新仕様で更新、(2) `docs/tests/preset-scenarios.ja.md` の用途をPresetシナリオカタログとして整備する草案作成。
