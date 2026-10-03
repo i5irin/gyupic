@@ -5,10 +5,13 @@ import type { MetadataPolicyMode, PresetId } from '../../domain/presets';
 import type { JobMetadataInfo } from '../../state/jobTypes';
 import { applyTimestamp, deriveTimestamp } from '../metadata/metadataPolicy';
 import { createPerfRecorder, runPerfSpan } from '../../utils/perfTrace';
+import {
+  canUseOffscreenConversion,
+  convertWithOffscreenCanvas,
+} from '../conversion/offscreenCanvasConverter';
 
 export type ProcessingPipelineParams = {
   sourceFile: File;
-  preparedFile?: File;
   jpegQuality: number;
   pickupId: PickupId;
   deliveryId: DeliveryId;
@@ -25,12 +28,30 @@ export type ProcessingPipelineResult = {
   warningReason?: string;
 };
 
+async function convertSourceToJpeg(
+  file: File,
+  quality: number,
+  recorder: ReturnType<typeof createPerfRecorder> | null,
+): Promise<File> {
+  if (canUseOffscreenConversion()) {
+    return runPerfSpan(recorder, 'convertWithOffscreenCanvas', () =>
+      convertWithOffscreenCanvas(file, quality),
+    );
+  }
+  const imageFile = await runPerfSpan(recorder, 'loadSourceImage', () =>
+    ImageFileService.load(file),
+  );
+  const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
+    ImageFileService.convertToJpeg(imageFile, quality),
+  );
+  return converted.asFile();
+}
+
 export async function runProcessingPipeline(
   params: ProcessingPipelineParams,
 ): Promise<ProcessingPipelineResult> {
   const {
     sourceFile,
-    preparedFile,
     jpegQuality,
     pickupId,
     deliveryId,
@@ -46,18 +67,11 @@ export async function runProcessingPipeline(
 
   let extraInfo: Record<string, unknown> | undefined;
   try {
-    let convertedFile: File;
-    if (preparedFile) {
-      convertedFile = preparedFile;
-    } else {
-      const imageFile = await runPerfSpan(recorder, 'loadSourceImage', () =>
-        ImageFileService.load(sourceFile),
-      );
-      const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
-        ImageFileService.convertToJpeg(imageFile, jpegQuality),
-      );
-      convertedFile = converted.asFile();
-    }
+    const convertedFile = await convertSourceToJpeg(
+      sourceFile,
+      jpegQuality,
+      recorder,
+    );
 
     const derivedTimestamp = await runPerfSpan(
       recorder,

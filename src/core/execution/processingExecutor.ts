@@ -20,6 +20,16 @@ export interface ProcessingExecutor {
 // Toggle this constant manually when enabling/disabling the worker path
 const FORCE_DISABLE_WORKER = false;
 
+function isWorkerPipelineSupported(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const hasOffscreen =
+    typeof OffscreenCanvas !== 'undefined' &&
+    typeof window.createImageBitmap === 'function';
+  return hasOffscreen;
+}
+
 class MainThreadProcessingExecutor implements ProcessingExecutor {
   public readonly mode: ExecutorMode = 'main-thread';
 
@@ -109,7 +119,7 @@ class WorkerProcessingExecutor implements ProcessingExecutor {
 }
 
 export function createProcessingExecutor(): ProcessingExecutor {
-  if (FORCE_DISABLE_WORKER) {
+  if (FORCE_DISABLE_WORKER || !isWorkerPipelineSupported()) {
     return new MainThreadProcessingExecutor();
   }
   try {
