@@ -1,6 +1,7 @@
 import ImageFileService from '../../services/image-file-service';
 import type {
   FilenameStrategy,
+  FilenameTimestampSource,
   OrderingRequirement,
   OutputFormat,
   PresetId,
@@ -26,6 +27,7 @@ export type ProcessingPipelineParams = {
   jpegQuality: number;
   outputFormat: OutputFormat;
   filenameStrategy: FilenameStrategy;
+  filenameTimestampSource: FilenameTimestampSource;
   timestampWriteMode: TimestampWriteMode;
   rewriteExif: boolean;
   injectFromEditedTime: boolean;
@@ -111,53 +113,37 @@ type FilenamePlan = {
   warning?: string;
 };
 
-function resolveTimestampMs(
-  derived: DerivedTimestamp,
-  sourceFile: File,
-  mode: TimestampWriteMode,
-): number | undefined {
-  if (mode === 'from-file-modified') {
-    if (
-      Number.isFinite(sourceFile.lastModified) &&
-      sourceFile.lastModified > 0
-    ) {
-      return sourceFile.lastModified;
-    }
-    if (derived.kind === 'file') {
-      return derived.value;
-    }
-  }
-  if (mode === 'copy-exif' || mode === 'off') {
+function resolveLegacyTimestampMs(options: {
+  filenameTimestampSource: FilenameTimestampSource;
+  derived: DerivedTimestamp;
+  sourceFile: File;
+}): number | undefined {
+  const { filenameTimestampSource, derived, sourceFile } = options;
+  if (filenameTimestampSource === 'captureTime') {
     if (derived.kind === 'exif') {
-      const parsed = parseExifDateTime(derived.value, derived.offset);
-      if (parsed !== null) {
-        return parsed;
-      }
+      return parseExifDateTime(derived.value, derived.offset) ?? undefined;
     }
-    if (derived.kind === 'file') {
-      return derived.value;
-    }
-    if (
-      mode === 'off' &&
-      Number.isFinite(sourceFile.lastModified) &&
-      sourceFile.lastModified > 0
-    ) {
-      return sourceFile.lastModified;
-    }
+    return undefined;
+  }
+  if (Number.isFinite(sourceFile.lastModified) && sourceFile.lastModified > 0) {
+    return sourceFile.lastModified;
+  }
+  if (derived.kind === 'file') {
+    return derived.value;
   }
   return undefined;
 }
 
 function buildLegacyFilenamePlan(options: {
   filenameStrategy: FilenameStrategy;
-  timestampWriteMode: TimestampWriteMode;
+  filenameTimestampSource: FilenameTimestampSource;
   derived: DerivedTimestamp;
   sourceFile: File;
   outputFormat: OutputFormat;
 }): FilenamePlan {
   const {
     filenameStrategy,
-    timestampWriteMode,
+    filenameTimestampSource,
     derived,
     sourceFile,
     outputFormat,
@@ -165,11 +151,11 @@ function buildLegacyFilenamePlan(options: {
   if (filenameStrategy === 'keep-original') {
     return {};
   }
-  const timestampMs = resolveTimestampMs(
+  const timestampMs = resolveLegacyTimestampMs({
+    filenameTimestampSource,
     derived,
     sourceFile,
-    timestampWriteMode,
-  );
+  });
   if (!timestampMs) {
     return {
       warning: 'Rename skipped: Timestamp unavailable.',
@@ -187,7 +173,7 @@ function buildLegacyFilenamePlan(options: {
 
 async function planOutputFilename(options: {
   filenameStrategy: FilenameStrategy;
-  timestampWriteMode: TimestampWriteMode;
+  filenameTimestampSource: FilenameTimestampSource;
   derived: DerivedTimestamp;
   sourceFile: File;
   outputFormat: OutputFormat;
@@ -195,7 +181,7 @@ async function planOutputFilename(options: {
 }): Promise<FilenamePlan> {
   const {
     filenameStrategy,
-    timestampWriteMode,
+    filenameTimestampSource,
     derived,
     sourceFile,
     outputFormat,
@@ -209,6 +195,7 @@ async function planOutputFilename(options: {
       const planResult = await planFilenameWithMetadataCore({
         sourceFile,
         filenameStrategy,
+        filenameTimestampSource,
         outputFormat,
         session,
       });
@@ -234,7 +221,7 @@ async function planOutputFilename(options: {
   }
   return buildLegacyFilenamePlan({
     filenameStrategy,
-    timestampWriteMode,
+    filenameTimestampSource,
     derived,
     sourceFile,
     outputFormat,
@@ -249,6 +236,7 @@ export async function runProcessingPipeline(
     jpegQuality,
     outputFormat,
     filenameStrategy,
+    filenameTimestampSource,
     timestampWriteMode,
     rewriteExif,
     injectFromEditedTime,
@@ -262,7 +250,9 @@ export async function runProcessingPipeline(
   );
 
   const captureTimeEnabled =
-    timestampWriteMode !== 'off' || filenameStrategy === 'timestamped';
+    timestampWriteMode !== 'off' ||
+    (filenameStrategy === 'timestamped' &&
+      filenameTimestampSource === 'captureTime');
 
   let deriveSession: Awaited<
     ReturnType<typeof deriveTimestampWithMetadataCore>
@@ -284,7 +274,7 @@ export async function runProcessingPipeline(
 
   const filenamePlan = await planOutputFilename({
     filenameStrategy,
-    timestampWriteMode,
+    filenameTimestampSource,
     derived: derivedTimestamp,
     sourceFile,
     outputFormat,

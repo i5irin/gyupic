@@ -2,6 +2,8 @@ export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'gif';
 
 export type FilenameStrategy = 'keep-original' | 'timestamped';
 
+export type FilenameTimestampSource = 'captureTime' | 'mtime';
+
 export type TimestampWriteMode = 'off' | 'copy-exif' | 'from-file-modified';
 
 export type OrderingRequirement = {
@@ -36,6 +38,7 @@ export type PresetDefinition = {
     jpegQuality: number;
     outputFormat: OutputFormat;
     filenameStrategy: FilenameStrategy;
+    filenameTimestampSource: FilenameTimestampSource;
     timestampWriteMode: TimestampWriteMode;
     rewriteExif: boolean;
     injectFromEditedTime: boolean;
@@ -66,6 +69,7 @@ const PRESETS: Record<PresetId, PresetDefinition> = {
       jpegQuality: 0.85,
       outputFormat: 'jpeg',
       filenameStrategy: 'keep-original',
+      filenameTimestampSource: 'captureTime',
       timestampWriteMode: 'copy-exif',
       rewriteExif: true,
       injectFromEditedTime: false,
@@ -95,7 +99,8 @@ const PRESETS: Record<PresetId, PresetDefinition> = {
     defaultSettings: {
       jpegQuality: 0.85,
       outputFormat: 'jpeg',
-      filenameStrategy: 'timestamped',
+      filenameStrategy: 'keep-original',
+      filenameTimestampSource: 'mtime',
       timestampWriteMode: 'from-file-modified',
       rewriteExif: true,
       injectFromEditedTime: true,
@@ -125,6 +130,7 @@ const PRESETS: Record<PresetId, PresetDefinition> = {
       jpegQuality: 0.85,
       outputFormat: 'jpeg',
       filenameStrategy: 'timestamped',
+      filenameTimestampSource: 'captureTime',
       timestampWriteMode: 'copy-exif',
       rewriteExif: true,
       injectFromEditedTime: true,

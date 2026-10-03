@@ -1,5 +1,6 @@
 import type {
   FilenameStrategy,
+  FilenameTimestampSource,
   OrderingRequirement,
   OutputFormat,
   TimestampWriteMode,
@@ -343,22 +344,31 @@ export async function applyMetadataWithMetadataCore(
 type PlanFilenameOptions = {
   sourceFile: File;
   filenameStrategy: FilenameStrategy;
+  filenameTimestampSource: FilenameTimestampSource;
   outputFormat: OutputFormat;
   session: MetadataCoreDeriveSession;
 };
 
-function deriveTimestampMsForPlan(
+function deriveCaptureTimestampMs(
   session: MetadataCoreDeriveSession,
 ): number | undefined {
-  const captureTimestamp = session.captureTime?.timestampMs;
+  const captureSource = session.captureTime;
   if (
-    typeof captureTimestamp === 'number' &&
-    Number.isFinite(captureTimestamp)
+    captureSource?.source === 'exif' &&
+    typeof captureSource.timestampMs === 'number' &&
+    Number.isFinite(captureSource.timestampMs)
   ) {
-    return captureTimestamp;
+    return captureSource.timestampMs;
   }
-  if (session.derived.kind === 'file') {
-    return session.derived.value;
+  if (captureSource?.source === 'exif' && captureSource.value) {
+    const offset =
+      typeof captureSource.offsetMinutes === 'number'
+        ? minutesToOffset(captureSource.offsetMinutes)
+        : undefined;
+    const parsed = parseExifDateTime(captureSource.value, offset ?? undefined);
+    if (parsed !== null) {
+      return parsed;
+    }
   }
   if (session.derived.kind === 'exif') {
     return (
@@ -371,6 +381,40 @@ function deriveTimestampMsForPlan(
   return undefined;
 }
 
+function deriveFileTimestampMs(options: {
+  session: MetadataCoreDeriveSession;
+  sourceFile: File;
+}): number | undefined {
+  const { session, sourceFile } = options;
+  const captureSource = session.captureTime;
+  if (
+    captureSource?.source === 'file' &&
+    typeof captureSource.timestampMs === 'number' &&
+    Number.isFinite(captureSource.timestampMs)
+  ) {
+    return captureSource.timestampMs;
+  }
+  if (Number.isFinite(sourceFile.lastModified) && sourceFile.lastModified > 0) {
+    return sourceFile.lastModified;
+  }
+  if (session.derived.kind === 'file') {
+    return session.derived.value;
+  }
+  return undefined;
+}
+
+function deriveTimestampMsForPlan(options: {
+  session: MetadataCoreDeriveSession;
+  filenameTimestampSource: FilenameTimestampSource;
+  sourceFile: File;
+}): number | undefined {
+  const { session, filenameTimestampSource, sourceFile } = options;
+  if (filenameTimestampSource === 'captureTime') {
+    return deriveCaptureTimestampMs(session);
+  }
+  return deriveFileTimestampMs({ session, sourceFile });
+}
+
 export async function planFilenameWithMetadataCore(
   options: PlanFilenameOptions,
 ): Promise<FilenamePlanResult> {
@@ -380,7 +424,11 @@ export async function planFilenameWithMetadataCore(
     );
   }
   const bindings = await getMetadataCore();
-  const timestampMs = deriveTimestampMsForPlan(options.session);
+  const timestampMs = deriveTimestampMsForPlan({
+    session: options.session,
+    filenameTimestampSource: options.filenameTimestampSource,
+    sourceFile: options.sourceFile,
+  });
   const context = {
     sourceName: options.sourceFile.name ?? '',
     filenameStrategy: options.filenameStrategy,
