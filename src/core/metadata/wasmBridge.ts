@@ -30,12 +30,18 @@ export type DerivedCaptureTime = {
   source: CaptureTimeSource;
   value?: string;
   offsetMinutes?: number;
+  timestampMs?: number;
 };
 
 export type DerivedMetadataResult = {
   metadataSpecVersion: MetadataSpecVersion;
   captureTime?: DerivedCaptureTime;
   warnings: MetadataWarning[];
+};
+
+export type MetadataDeriveContext = {
+  captureTimeEnabled: boolean;
+  lastModifiedMs?: number;
 };
 
 export type MetadataAppliedFlags = {
@@ -52,6 +58,7 @@ export type ApplyMetadataResult = {
   appliedFlags: MetadataAppliedFlags;
   captureTimeBadge?: string;
   warnings: MetadataWarning[];
+  nextLastModifiedMs?: number;
 };
 
 export type FilenamePlanResult = {
@@ -63,16 +70,18 @@ export type FilenamePlanResult = {
 };
 
 export type MetadataApplyContext = {
+  captureTimeEnabled: boolean;
+  captureTime?: DerivedCaptureTime;
   ordering: OrderingRequirement;
   timestampWriteMode: TimestampWriteMode;
   rewriteExif: boolean;
   injectFromEditedTime: boolean;
-  captureTimeEnabled: boolean;
+  outputFormat: OutputFormat;
+  fileNameOverride?: string;
+  lastModifiedOverrideMs?: number;
   gpsEnabled: boolean;
   preserveXmp: boolean;
   preserveXmpManagement: boolean;
-  outputFormat: OutputFormat;
-  filenameStrategy: FilenameStrategy;
 };
 
 export type FilenamePlanContext = {
@@ -85,7 +94,10 @@ export type FilenamePlanContext = {
 
 export interface MetadataCoreBindings {
   metadata_spec_version(): string;
-  derive_metadata(input: Uint8Array): Promise<DerivedMetadataResult>;
+  derive_metadata(
+    input: Uint8Array,
+    context: MetadataDeriveContext,
+  ): Promise<DerivedMetadataResult>;
   apply_metadata(
     encoded: Uint8Array,
     settings: MetadataApplyContext,
