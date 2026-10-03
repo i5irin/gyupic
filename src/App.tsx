@@ -72,6 +72,15 @@ export default function App() {
   useEffect(() => {
     const supported =
       typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+    setToastMessage(
+      JSON.stringify({
+        supported,
+        shareType: typeof (navigator as any).share,
+        isSecureContext,
+        protocol: window.location.protocol,
+        href: window.location.href,
+      }),
+    );
     setShareSupported(supported);
   }, []);
 
