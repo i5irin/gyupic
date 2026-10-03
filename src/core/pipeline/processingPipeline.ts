@@ -1,4 +1,3 @@
-import ImageFile from '../../models/image-file';
 import ImageFileService from '../../services/image-file-service';
 import type { DeliveryId } from '../../domain/deliveryCatalog';
 import type { PickupId } from '../../domain/pickupCatalog';
@@ -9,7 +8,6 @@ import { createPerfRecorder, runPerfSpan } from '../../utils/perfTrace';
 
 export type ProcessingPipelineParams = {
   sourceFile: File;
-  sourceImage: ImageFile;
   jpegQuality: number;
   pickupId: PickupId;
   deliveryId: DeliveryId;
@@ -31,7 +29,6 @@ export async function runProcessingPipeline(
 ): Promise<ProcessingPipelineResult> {
   const {
     sourceFile,
-    sourceImage,
     jpegQuality,
     pickupId,
     deliveryId,
@@ -47,6 +44,10 @@ export async function runProcessingPipeline(
 
   let extraInfo: Record<string, unknown> | undefined;
   try {
+    const imageFile = await runPerfSpan(recorder, 'loadSourceImage', () =>
+      ImageFileService.load(sourceFile),
+    );
+
     const derivedTimestamp = await runPerfSpan(
       recorder,
       'deriveTimestamp',
@@ -57,7 +58,7 @@ export async function runProcessingPipeline(
     );
 
     const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
-      ImageFileService.convertToJpeg(sourceImage, jpegQuality),
+      ImageFileService.convertToJpeg(imageFile, jpegQuality),
     );
 
     const applyResult = await runPerfSpan(recorder, 'applyTimestamp', () =>

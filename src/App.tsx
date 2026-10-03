@@ -14,7 +14,10 @@ import SettingsPanel from './components/SettingsPanel';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
-import { runProcessingPipeline } from './core/pipeline/processingPipeline';
+import {
+  createProcessingExecutor,
+  type ProcessingExecutor,
+} from './core/execution/processingExecutor';
 import {
   DELIVERY_CATALOG,
   DeliveryIds,
@@ -46,19 +49,29 @@ function safeRevokeObjectURL(url: string | undefined) {
   try {
     URL.revokeObjectURL(url);
   } catch {
-    // noop
+    // No operation
   }
 }
 
 export default function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const executorRef = useRef<ProcessingExecutor | null>(null);
 
   // Keep a ref to the latest state so async conversions can validate generation.
   const stateRef = useRef(state);
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    const executor = createProcessingExecutor();
+    executorRef.current = executor;
+    return () => {
+      executor.terminate();
+      executorRef.current = null;
+    };
+  }, []);
 
   // Local lock to avoid starting multiple conversions due to effect re-runs
   // (e.g. React StrictMode, rapid re-renders).
@@ -196,12 +209,10 @@ export default function App() {
             size: file.size,
           });
           try {
-            const imageFile = await runPerfSpan(
-              itemRecorder,
-              'load-image',
-              () => ImageFileService.load(file),
+            await runPerfSpan(itemRecorder, 'load-image', () =>
+              ImageFileService.load(file),
             );
-            return { file, imageFile };
+            return { file };
           } finally {
             itemRecorder?.commit();
           }
@@ -209,7 +220,7 @@ export default function App() {
       );
       const ok = results
         .filter(
-          (r): r is PromiseFulfilledResult<{ file: File; imageFile: any }> =>
+          (r): r is PromiseFulfilledResult<{ file: File }> =>
             r.status === 'fulfilled',
         )
         .map((r) => r.value);
@@ -225,14 +236,13 @@ export default function App() {
         return;
       }
 
-      const newItems: JobItem[] = ok.map(({ file, imageFile }) => ({
+      const newItems: JobItem[] = ok.map(({ file }) => ({
         id: createId(),
         createdAt: Date.now(),
         isNew: true,
         status: 'queued',
         src: {
           file,
-          imageFile,
           previewUrl: URL.createObjectURL(file),
         },
       }));
@@ -423,11 +433,15 @@ export default function App() {
     inFlightRef.current = next.id;
     dispatch({ type: 'START_ITEM', id: next.id });
 
+    const executor = executorRef.current;
+    if (!executor) {
+      return;
+    }
+
     const run = async () => {
       try {
-        const pipelineResult = await runProcessingPipeline({
+        const pipelineResult = await executor.run({
           sourceFile: next.src.file,
-          sourceImage: next.src.imageFile,
           jpegQuality: startedQuality,
           pickupId: startedPickupId,
           deliveryId: startedDeliveryId,
