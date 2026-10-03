@@ -81,7 +81,7 @@ export type AppState = {
   runId: number;
   settings: ConvertSettings;
   settingsRev: number;
-  activeItemId: string | null;
+  activeItemIds: string[];
   lastAddedIds: string[];
   presetId: PresetId;
   pickupId: PickupId;
