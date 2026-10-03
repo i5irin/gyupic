@@ -1,0 +1,114 @@
+# progress-memo（コミット対象外）
+
+このファイルは Phase3/Phase4 の進捗・懸念・引き継ぎ事項を共有するためのメモ。
+チャットを切り替える／引き継ぐ際は、この内容を冒頭に貼り付ける。
+**更新ルール**:
+- 主要な方針決定・タスク完了・課題発生の度に必ず追記する（最少1日1回以上）。
+- エントリは日付順で追加し、最新情報を上に置く。
+- 進捗・仕掛・懸念・次アクションをそれぞれ箇条書きで必ず書く。
+- 新しいチャットを開始／引き継ぐ際は、本ファイルの最新エントリと必要に応じて `memo.txt` の該当抜粋を初回プロンプトへ貼り付ける。
+
+---
+
+## 2026-01-04（Metadataタスク優先度整理）
+- **進捗**: plan_filename（WASM）実装着手前に、AVIF Capture Time・GIFメタデータ排他制御・GPS/XMP等の移植について優先度を洗い出し、ドキュメント/実装状況を確認した。Phase3必須度で並べると「plan_filename → GIF排他制御 → AVIF Capture Time → その他メタ移植」の順で整理。
+- **仕掛**: GIF排他制御（UI/ロジック）は未実装。AVIF Capture TimeとGPS/XMP/Color移植もRust側にコードが無いまま。優先度メモのみで具体対応はこれから。
+- **懸念**: GIFを選んでもRewrite Exif等がONのまま操作でき、仕様違反＆ユーザー誤解の恐れ。AVIF/GPS/XMPを後回しにすると Phase3完了判定が更に遅れるリスクがあるため、優先度を定期的に見直す必要がある。
+- **次アクション**: (1) plan_filename 実装を完了し ordering requirement を満たす。(2) 続いて GIF 形式選択時の Capture Time/GPS/XMP トグルを強制OFF＆UI disable するタスクを立てる。(3) その後 AVIF Capture Time 書き込み→抽出をRustへ追加。(4) GPS/XMP/Color移植のスコープ分解とスケジュール化を行う。
+
+## 2026-01-04（Safari WebP変換ガード）
+- **進捗**: Safari (macOS/iOS) が canvas 経由で WebP を生成できない問題に合わせ、`ImageFileService.convertToFormat()` と OffscreenCanvas 経由の `convertWithOffscreenCanvas()` の双方で `blob.type !== requestedMime` 検知時に Error を返すガードを追加。`docs/requirements.ja.md` / `docs/design.ja.md` に制約と Phase4 で WASM 変換へ移行する方針を追記し、WebKit Bug 226950 を引用して根拠を明示した。
+- **仕掛**: UI 側トースト/モーダルの文面と翻訳（英語のみで良いか、JP併記が必要か）をまだ決めていない。Safari 上での実地テスト（WebP指定 → Error表示 → 変換停止）が `docs/tests/preset-scenarios.ja.md` に未記録。
+- **懸念**: 失敗理由が英語のみで表示されるため、日本語ユーザーに直接伝わりにくい。Chrome系でも `blob.type` が空文字になるケースを考慮する必要があり、誤検知でエラーにならないかの再確認が必要。
+- **次アクション**: (1) Safari 実機で WebP 変換をリクエストし、Error 表示（UIログ含む）を取得して `docs/tests/status-YYYYMMDD.ja.md` に記録。(2) `imageFile.extractBlob` が `blob.type=''` を返すケースを想定したテストを追加し、不要な失敗が起きないことを確認。(3) Phase4 の WASM 変換タスクをタスクリスト化し、変換アーキテクチャ検討を開始。
+
+## 2026-01-04（WebP Capture Time support）
+- **進捗**: WASM metadata-core で WebP の RIFF/VP8X/EXIF チャンクを再構築し、Capture Time を EXIF chunk に書き戻せるようにした。既存の VP8X があればフラグのみ更新、無ければ VP8/VP8L からキャンバスサイズを推定して VP8X + EXIF を挿入する構成。derive 側も WebP EXIF chunk を自前で抽出して `Reader::read_raw` へ渡すフォールバックを追加。`npm run wasm:build` 成功。
+- **仕掛**: 実際の WebP 出力（OffscreenCanvas 由来）を使った end-to-end 検証と `docs/tests/preset-scenarios.ja.md` への証跡記録が未着手。VP8X が無い WebP で α や ICC など別フラグが必要なケースは未検証。
+- **懸念**: AVIF/GIF など他形式は依然 Warning のみ。WebP でキャンバスサイズを推定できなかった場合は Warning に落ちるため、edge case の再現性チェックが必要。
+- **次アクション**: (1) WebP 出力Preset（Photos→Folders等）で Capture Time バッジ／Warning を確認し、set-30-light 証跡を記録。(2) α/ICC/XMP入りの WebP で VP8X フラグを壊していないか要確認。(3) AVIF 向けCapture Time書き込み計画を立案。
+
+## 2026-01-04（PNG Capture Time derive fallback）
+- **進捗**: metadata-core の `derive_capture_time_from_exif` で PNG 判定時に eXIf チャンクを自前スキャンし、`Reader::read_raw` で直接解析するフローを実装。これにより PNG 再入力時でも撮影日時を取得できるようにし、`npm run wasm:build` でビルド成功を確認した。
+- **進捗（追加）**: `eXIf` チャンクから `Exif\0\0` プレフィックスを除去してから `read_raw` に渡すよう改善し、TIFFヘッダのみを解析対象にした。これで PNG 再投入時に `META_MISSING_INPUT` Warning が出続ける根本原因を修正。
+- **進捗（検証）**: PNG→PNG→再投入（JPEG変換含む）を手元で実施し、Warningが発生しないことを確認。`docs/design.ja.md` へガイドラインも追記済み。
+- **仕掛**: PNG 再投入で Warning が消えるかの実ファイル検証は未着手。WebP/AVIFのCapture Time書き込み・再読込は依然未対応。
+- **懸念**: 今回はCapture Timeのみ対応。GPS/XMP/ICCベストエフォートの再入力検証も必要で、`docs/tests/preset-scenarios.ja.md` への証跡が未記録。
+- **次アクション**: (1) PNG→PNG→JPEG の再入力テストを set-30-light で実施しログ化。(2) WebP/AVIF向け書き込み＆deriveロジックをRust側へ拡張。(3) Warning表示が仕様通りか UI で確認し、必要なら文言チューニング。
+
+## 2026-01-04（PNG Capture Time injection）
+- **進捗**: Rust/WASM の `apply_metadata` で PNG eXIf チャンクへ Capture Time を再生成して書き込む処理を実装し、既存の eXIf を除去して IHDR 直後に差し込むよう統一。TS フォールバック（metadataPolicy.ts）でも同じロジックを実装し、WASM が読み込めない環境でも PNG 出力の撮影日時が維持されるようになった。`npm run wasm:build` / `npm run build` でセット一式を確認済み。
+- **仕掛**: WebP/AVIF/GIF など PNG 以外の非JPEG形式では依然として Capture Time 書き込みができず、WASM 側も `META_UNSUPPORTED_OUTPUT` を返している。TS フォールバックは WebP/AVIF で「WASM が必要」Warningを表示するだけの暫定対処。
+- **懸念**: PNG 以外では Warning のみになるため、`Photos→Photos` 以外のPreset（WebP等）で Phase3 の要件を満たせない。WebP の VP8X/EXIF chunk 追加や AVIF Exif item 生成は未着手なため、Phase3 クローズ条件に影響する。さらに、Capture Time を保持した PNG を一度ぎゅっぴくで PNG に変換→ダウンロード→再度 JPEG へ変換しようとすると `Capture time metadata was not found in the source file.` Warning が発生しており、再入力時の eXIf 読み込みに問題がある可能性が高い。
+- **次アクション**: (1) Rust 側で WebP/AVIF 向け Capture Time 書き込みロジックを追加し、TS フォールバックも最小限サポートする。(2) PNG 実装の単体テスト/回帰テスト（PNG→PNG/Photos→Photos）を `docs/tests/preset-scenarios.ja.md` に記録。(3) Warning UI で「WASM依存機能」を明示し、WebP/AVIFが未対応であることを周知する。
+
+## 2026-01-04（Capture Time mode separation）
+- **進捗**: ProcessingPipeline から WASM へ `timestampWriteMode` を伝搬し、Rust 側の derive/apply が `copy-exif` / `from-file-modified` を仕様通りに振り分けるよう改修。mtime は秒精度へ切り捨てて書き戻し、取得できない場合は `META_MTIME_UNAVAILABLE` を返す。`npm run wasm:build` と `npm run build` で型チェック/バンドルを確認済み。
+- **仕掛**: PNG/eXIf など JPEG 以外への Capture Time 書き込みは未対応。TS fallback (`metadataPolicy.ts`) が旧ロジックのまま残っており、完全にRustへ置き換わっていない。
+- **懸念**: derive/apply を Rust へ寄せる過程で Warning の重複や英語文言のみのままになっている。TS 側フォールバック時は以前の挙動（Exif無=mtime fallback）が残るため、WASM失敗時は旧仕様へ戻る点に注意。
+- **次アクション**: (1) PNG/WebP など非JPEG書き込みの対応案を整理。(2) GPS/XMP/ファイル名プラン I/F を Rust 実装へ拡張。(3) TS fallback を縮退用途だけに絞り、Warning 表示をWASM由来コードへ統一。
+
+## 2026-01-04（wasm-opt環境整備）
+- **進捗**: `.devcontainer/Dockerfile` の apt 依存に `binaryen` を追加し、DevContainer をリビルドすれば `wasm-opt` が常に利用できる状態にした。`npm run wasm:build` が wasm-opt 不足で失敗していた事象への恒久対応となる。
+- **仕掛**: まだコンテナの Rebuild を実施しておらず、`npm run wasm:build` の再実行も未確認。CI や裸のローカル環境向け手順（binaryen のインストール方法）を README/doc へ記載していない。
+- **懸念**: VS Code 側でリビルドしないと引き続き wasm-opt が見つからず失敗する。CI でも同一 Dockerfile を使わない場合は binaryen が不足するため、別途対応が必要。
+- **次アクション**: (1) DevContainer を Rebuild して binaryen を適用。(2) Rebuild 後に `npm run wasm:build` を再度実行し、成功ログを確認。(3) CI/README に binaryen 依存を追記するか判断。
+
+- **進捗**: Processing Worker 起動時に `metadata_core` WASM を lazy load するローダーを登録し、`runProcessingPipeline` では新規 `metadataCoreAdapter` を経由して derive/apply を実行（WASM失敗時は metadataPolicy.ts へフォールバック）。`npm run build` で生成物に `metadata_core_bg.wasm` が含まれること、TSビルド/型チェックが通ることを確認。さらに Vite/TypeScript の alias を `metadata_core/* → src/core/metadata/wasm-pkg/*` へ設定し、Worker import 文を `metadata_core/metadata_core` へ一本化して lint エラーを解消。
+- **仕掛**: GPS/XMP/ファイル名計画など Rust 側が未対応の項目は依然 TS フォールバック依存。metadataPolicy.ts の責務切り出し（Deprecated化）や Warning 表示の整合性確認が必要。
+- **懸念**: Worker 側で WASM 読み込みに失敗した場合の UI 表示（Fallback indicator）やログ出力が未整備。`metadata_core` のロードに時間がかかるケースでジョブ開始が遅延する恐れ。
+- **次アクション**: (1) metadataCoreAdapter に GPS/XMP/ファイル名計画対応を追加。（2）メタデータ Warning を UI へ連携し、`docs/tests/preset-scenarios.ja.md` に WASM 経路のログを記載。(3) metadataPolicy.ts の役割を「TS fallback module」に整理し、段階的に除去する計画を立案。
+
+## 2026-01-04（DevContainer rustup自動化 + Warning英語化）
+- **進捗**: `.devcontainer/Dockerfile` に rustup 安定版セットアップ（`rustup default ${RUST_VERSION}` / `rustup target add wasm32-unknown-unknown`）と `wasm-bindgen-cli` / `wasm-pack` のバージョン指定を追加し、コンテナを開いた直後でも `npm run wasm:build` が通るようにした。Rust/TS の Warning 型は英語メッセージのみを返す `message` フィールドに簡素化し、docs/design.ja.md にも「Phase3は英語UIのみ、Phase4で多言語化を再検討」と明記。
+- **仕掛**: DevContainer 以外（CI / ローカル裸環境）でのRustセットアップ手順はまだREADME等に落とし込めていない。Rust実装はCapture Time以外の項目（GPS/XMP/ファイル名）を未対応で、TS側フォールバックとの二重管理が続いている。
+- **懸念**: Phase4で多言語表示へ戻す際に messageフィールドの互換性を保つ計画を用意しないと再度大きな差分が発生する。`metadata_core` では未使用フィールドや未配線警告が残っており、ビルドログのノイズになっている。
+- **次アクション**: (1) CI/ローカル手順書に Rust toolchain 準備を追記（README か docs/design）。(2) `plan_filename` / GPS / XMP など残り機能をRust化し、TSフォールバック整理の計画を立てる。(3) Phase4ロードマップに多言語UIの再導入計画を追記。
+
+## 2026-01-04（devcontainer Rust/WASM対応）
+- **進捗**: `.devcontainer/Dockerfile` を追加し、既存の TypeScript Node イメージをベースに Rustup / wasm32-unknown-unknown ターゲット / wasm-pack をプリインストール。`devcontainer.json` を Dockerfile ビルド方式へ切り替え、`postCreateCommand` で `npm install` とターゲット追加を再実行するように設定した。
+- **仕掛**: CI 側で wasm-pack をどう扱うか未検討。`npm run wasm:build` の定期実行や成果物キャッシュの仕組みは別途整備が必要。VS Code 以外でコンテナを立ち上げるケースの検証も未着手。
+- **懸念**: devcontainer 設定変更後は必ず **Rebuild Container** が必要。Rust toolchain の導入で初回ビルドがやや長くなる見込み。Codex で新チャットを開く際は、リビルドに伴う再起動後でも `progress-memo`/`memo` の抜粋貼付ルールを忘れないこと。
+- **次アクション**: (1) `Dev Containers: Rebuild Container` → `Reopen in Container` を実行し、新ツールチェーンを適用。(2) Rebuild 後に `npm run wasm:build` が動作するか確認。（必要に応じて wasm-pack キャッシュを共有する方法を検討）(3) devcontainer 変更をCI/READMEへ伝えるか判断。
+
+## 2026-01-03（WASM足場追加）
+- **進捗**: `wasm/metadata-core` Rustクレート・README・.gitignoreを作成し、`derive/apply/plan_filename` APIのスタブと Warning ひな形を実装。`src/core/metadata/wasmBridge.ts` でローダーI/FとWarning型を定義し、`package.json` に `npm run wasm:build` を追加。`docs/design.ja.md` に Approach3 のアーキテクチャ（ビルド/Loader/plan_filename責務）を追記。
+- **仕掛**: Rust側の実処理（Exif/GPS/XMP/ICC/CICP）未実装、TS側はまだ metadataPolicy.ts を使っている。WorkerからWASMへバイナリを渡す処理や `configureMetadataCoreLoader` の呼び出しポイントが未着手。
+- **懸念**: wasm-pack の導入が新規依存になるため、CI/開発環境のセットアップ手順が追加で必要。`src/core/metadata/wasmBridge.ts` の型を今後どこから参照するかを決めないと二重管理になる恐れ。
+- **次アクション**: (1) Worker 初期化時に `configureMetadataCoreLoader` を設定し、WASM読み込みエラーハンドリングを整備。(2) Rust実装のI/F（Warningコードマッピング等）を固め、TS側 migration plan を `memo.txt` へ細分化。(3) `set-30-light` などテスト記録のテンプレを更新して、WASM導入後のリグレッションチェック手順を準備。
+
+## 2026-01-03（WASM移行方針）
+- **進捗**: Phase3の実装方針として「Approach3（Rust/WASMベースのMetadata Core）」を採用。progress-memo / memo を初回プロンプトへ貼り付ける運用を正式ルール化し、引き継ぎコストを下げる準備を開始。
+- **仕掛**: Rust/WASMコアのAPI設計、`metadataSpecVersion=1.0` I/F定義、TS側ブリッジの設計、docs/tests（preset-scenarios）との突き合わせ。
+- **懸念**: Rust/WASM導入によるビルドチェーン追加・ブラウザ互換性・バンドルサイズ増などリスク大。現状のTS実装と段階的に差し替えないと長期ブランチ化しやすい。set-30-light 等の証跡が空のままでPhase3クローズ条件が満たせない。
+- **次アクション**: (1) `memo.txt` にWASM運用ルールと手順を追記。(2) Rustプロジェクト雛形＋ビルド手順（wasm-pack 等）の調査結果を docs/memo に記録。(3) QueueManager/ProcessingPipeline 側のI/F変更点を洗い出し、段階的にタスク分割する。
+
+## 2026-01-03
+- **進捗**: metadata-spec v1.0 を再精読し、`docs/requirements.ja.md` / `docs/design.ja.md` を完全同期。Capture Time OFF時の `ORDERING_REQUIREMENT_NOT_MET` 取り扱いや、P2リネーム失敗Warning、ICC/CICP best-effort方針（UI非露出）を要件・設計両面で明文化した。
+- **仕掛**: 実装（MetadataPolicy/FilenamePolicy/SettingsPanel）側は未更新。warningテンプレ返却、`metadataSpecVersion` ハンドリング、`scenario.folders-to-photos` の `filenameStrategy` 既定値などコード反映が必要。docs/tests/preset-scenarios.ja.md も未着手のため、Phase3クローズ条件（ログ証跡）がまだ揃っていない。
+- **懸念**: ドキュメントだけ先行したことで、コードと仕様の乖離が発生中（色管理のbest-effort化、Capture Time OFF時のWarning扱い、P2 warning文言など）。実装が追いつくまで利用者に誤ったUIを見せるリスクがある。set-30-light / set-50-heavy の再計測ログも未提出。
+- **次アクション**: (1) MetadataPolicy/FilenamePolicy/SettingsPanel の実装差分を洗い、docs差分をコードへ適用。(2) `docs/tests/preset-scenarios.ja.md` に新テンプレ＋ログ初期投入。（Photos→Photos/P2/P3 各1 run 以上）(3) progress-memo/memo の更新ルールに沿って、チャット切替時はこのセクションから貼付。
+
+## 2026-01-02 (午後)
+- **進捗**: 要件書/設計書をシナリオプリセット仕様へ更新し、`docs/tests/preset-scenarios.ja.md` を端末実態（iPhone 17 Pro / macOS 15.6.1 / Windows 11 Parallels）ベースのテンプレに差し替え。`memo.txt` にPreset刷新内容を追記。
+- **仕掛**: コード全面更新（domain presets, App/Settings UI, QueueManager, metadataPolicy, pipeline, worker params）を進行中。高度設定UIやログ整備をコードへ反映させるタスクが残っている。
+- **懸念**: 実装切り替え中はビルド失敗やwarning表示の回 regressions リスクが高い。MetadataPolicyやWorker通信の型変更が広範囲なので、テスト未整備の箇所は特に注意が必要。
+- **次アクション**: (1) Preset/Orderingモデルの実装差し替えを完了し、`npm run build` で型崩れを確認。(2) preset-scenarios の最初の実測ログを記入。(3) progress-memo を都度更新し、引き継ぎ時はこのファイル冒頭を貼るルールを徹底。
+
+## 2026-01-02 (夕方)
+- **進捗**: シナリオ型Presetの実装を完了。App/Settings/UI/Queue/Worker/MetadataPolicy/ProcessingPipelineが全て新モデルに合わせて動作し、`npm run build` 成功を確認。`docs/tests/preset-scenarios.ja.md` には端末情報を反映済み。
+- **仕掛**: 実機テスト（Photos→Photos / Folders→Photos / Photos→Folders）とwarning文言の最終確認。preset-scenariosへの結果記入が未着手。
+- **懸念**: 並び順検証ログが空のため、Phase3クローズ条件を満たしていない。高度設定の差分表示はUI上で可能だがUX文言は仮のままなので、ユーザーテストでフィードバックを得る必要あり。
+- **次アクション**: 1) set-30-light/set-50-heavy を各シナリオで実行し、warning/エラーを `docs/tests/preset-scenarios.ja.md` に記録。2) SettingsPanel文言・トーストを実機確認し、必要なら細かなコピー調整。3) 進捗をこのファイルへ追記し、次チャット冒頭で貼り付ける。
+
+## 2026-01-02
+- **進捗**: 新Presetモデル方針を確定（pickup/delivery/guarantee概念を廃止し、用途ベースのシナリオPresetへ移行）。`memo.txt` を更新済み。
+- **仕掛**: 要件書/設計書の刷新、Presetシナリオベースのテストテンプレ再構築。
+- **懸念**: MetadataPolicy / QueueManager が deliveryId 前提のため構造変更が大きい。テストログの再スタート時に旧シナリオとの比較データが残らない点に注意。
+- **次アクション**: (1) docs/requirements.ja.md と docs/design.ja.md を新仕様で更新、(2) `docs/tests/preset-scenarios.ja.md` の用途をPresetシナリオカタログとして整備する草案作成。
+
+## 2026-01-04（WASM Capture Time 実装途中）
+- **進捗**: metadata-core（Rust）の `derive_metadata` / `apply_metadata` に撮影日時抽出＆Exif書き込みロジックを実装。Warning型（JP/EN）、`nextLastModifiedMs`、`MetadataDeriveContext` などブリッジの型を整備し、TS 側の `wasmBridge.ts` も更新。
+- **仕掛**: DevContainer の rustup にツールチェーンが未設定で `npm run wasm:build` が失敗中（`rustup default stable` → `npm run wasm:build` が必要）。plan_filename・GPS/XMP/Filename戦略などは未着手でTSパイプラインへの組込もまだ。
+- **懸念**: Rust toolchainが入っていない状態では wasm-pack の検証ができず、CI でも同様にこける可能性が高い。実装だけ進んでもWorker経由で未配線のまま放置すると差分肥大のリスクあり。
+- **次アクション**: (1) rustupでstableツールチェーン＋wasm32ターゲットを入れ `npm run wasm:build` を通す。(2) Worker初期化で `configureMetadataCoreLoader` を呼ぶ箇所を追加し、TS側でderive/apply/filenameを順次差し替え。(3) plan_filenameとWarningテーブルをRust側に移植。（必要なら docs/tests に挙動を追記）
