@@ -12,6 +12,7 @@ type PresetOption = {
   title: string;
   description: string;
   guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+  category: 'stable' | 'experimental';
   disabled?: boolean;
   disabledReason?: string;
 };
@@ -132,6 +133,13 @@ export default function SettingsPanel({
                 >
                   {deliveryBadgeLabel(selectedPreset.guarantee)}
                 </span>
+                {selectedPreset.category === 'experimental' && (
+                  <span
+                    className={`${styles.settingsPanelBadge} ${styles.settingsPanelBadgeExperimental}`}
+                  >
+                    Experimental
+                  </span>
+                )}
                 {selectedPreset.disabled && selectedPreset.disabledReason && (
                   <div className={styles.settingsPanelWarning}>
                     {selectedPreset.disabledReason}
