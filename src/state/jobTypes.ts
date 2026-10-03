@@ -1,6 +1,7 @@
 import type { DeliveryId } from '../domain/deliveryCatalog';
 import type { PickupId } from '../domain/pickupCatalog';
 import type {
+  FilenameSource,
   MetadataPolicyMode,
   OutputFormat,
   PresetId,
@@ -93,6 +94,7 @@ export type ConvertSettings = {
   presetId: PresetId;
   metadataPolicyMode: MetadataPolicyMode;
   outputFormat: OutputFormat;
+  filenameSource: FilenameSource;
 };
 
 export type AppState = {
