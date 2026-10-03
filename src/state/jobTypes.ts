@@ -1,18 +1,5 @@
 import ImageFile from '../models/image-file';
-
-export const DeliveryScenarioIds = {
-  IosPhotos: 'ios.photos',
-  IosShareSheet: 'ios.shareSheet',
-  IosFiles: 'ios.files',
-  AndroidTodo: 'android.todo',
-  DesktopTodo: 'desktop.todo',
-} as const;
-
-export type DeliveryScenarioId =
-  (typeof DeliveryScenarioIds)[keyof typeof DeliveryScenarioIds];
-
-export const DEFAULT_DELIVERY_SCENARIO_ID: DeliveryScenarioId =
-  DeliveryScenarioIds.IosPhotos;
+import type { DeliveryScenarioId } from '../domain/deliveryScenarios';
 
 export type JobStatus =
   | 'queued'
