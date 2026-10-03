@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
 use wasm_bindgen::prelude::*;
 
+use crc32fast::Hasher;
 use exif::{Error as ExifError, Exif, Reader, Tag, Value};
 use std::io::Cursor;
 use time::{macros::format_description, PrimitiveDateTime, UtcOffset};
@@ -10,6 +11,7 @@ use time::{macros::format_description, PrimitiveDateTime, UtcOffset};
 const METADATA_SPEC_VERSION: &str = "1.0";
 const EXIF_DATETIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]:[month]:[day] [hour]:[minute]:[second]");
+const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
 #[cfg(feature = "console_error_panic_hook")]
 #[wasm_bindgen(start)]
@@ -297,6 +299,15 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
                     warnings.push(err.into_warning());
                 }
             },
+            OutputFormat::Png => match rewrite_png_capture_time(&output, &capture_info) {
+                Ok(next_bytes) => {
+                    output = next_bytes;
+                    applied_flags.capture_time = true;
+                }
+                Err(err) => {
+                    warnings.push(err.into_warning());
+                }
+            },
             other => warnings.push(warning_unsupported_format(other.as_str())),
         }
     }
@@ -519,7 +530,6 @@ fn rewrite_jpeg_capture_time(
         if marker == 0xDA {
             if !inserted {
                 output.extend_from_slice(&app1_segment);
-                inserted = true;
             }
             output.extend_from_slice(&input[cursor..]);
             return Ok(output);
@@ -527,7 +537,6 @@ fn rewrite_jpeg_capture_time(
         if marker == 0xD9 {
             if !inserted {
                 output.extend_from_slice(&app1_segment);
-                inserted = true;
             }
             output.extend_from_slice(&input[cursor..]);
             return Ok(output);
@@ -571,6 +580,96 @@ fn rewrite_jpeg_capture_time(
         output.extend_from_slice(&app1_segment);
     }
     Ok(output)
+}
+
+fn rewrite_png_capture_time(
+    input: &[u8],
+    capture: &CaptureTimeInfo,
+) -> Result<Vec<u8>, ApplyFailure> {
+    if input.len() < PNG_SIGNATURE.len() || input[..8] != PNG_SIGNATURE {
+        return Err(ApplyFailure::Unsupported(
+            "output bytes are not a PNG image".to_string(),
+        ));
+    }
+    let payload = build_exif_payload(capture)?;
+    let exif_chunk = build_png_exif_chunk(&payload);
+
+    let mut cursor = PNG_SIGNATURE.len();
+    let mut chunks: Vec<Vec<u8>> = Vec::new();
+    let mut inserted = false;
+    let mut saw_ihdr = false;
+
+    while cursor + 8 <= input.len() {
+        let length =
+            u32::from_be_bytes([input[cursor], input[cursor + 1], input[cursor + 2], input[cursor + 3]])
+                as usize;
+        let mut chunk_type = [0u8; 4];
+        chunk_type.copy_from_slice(&input[cursor + 4..cursor + 8]);
+        let data_start = cursor + 8;
+        let data_end = data_start + length;
+        let chunk_end = data_end + 4;
+        if chunk_end > input.len() {
+            return Err(ApplyFailure::Apply(
+                "PNG chunk exceeds buffer length".to_string(),
+            ));
+        }
+
+        if &chunk_type == b"eXIf" {
+            cursor = chunk_end;
+            continue;
+        }
+
+        let chunk_bytes = input[cursor..chunk_end].to_vec();
+        chunks.push(chunk_bytes);
+        if &chunk_type == b"IHDR" {
+            saw_ihdr = true;
+            chunks.push(exif_chunk.clone());
+            inserted = true;
+        }
+
+        cursor = chunk_end;
+        if &chunk_type == b"IEND" {
+            break;
+        }
+    }
+
+    if !saw_ihdr {
+        return Err(ApplyFailure::Apply(
+            "PNG image is missing an IHDR chunk".to_string(),
+        ));
+    }
+    if !inserted {
+        let position = chunks
+            .iter()
+            .position(|chunk| chunk.len() >= 12 && &chunk[4..8] == b"IEND")
+            .ok_or_else(|| {
+                ApplyFailure::Apply("PNG image is missing an IEND chunk".to_string())
+            })?;
+        chunks.insert(position, exif_chunk);
+    }
+
+    let total_len: usize =
+        PNG_SIGNATURE.len() + chunks.iter().map(|chunk| chunk.len()).sum::<usize>();
+    let mut output = Vec::with_capacity(total_len);
+    output.extend_from_slice(&PNG_SIGNATURE);
+    for chunk in chunks {
+        output.extend_from_slice(&chunk);
+    }
+    Ok(output)
+}
+
+fn build_png_exif_chunk(payload: &[u8]) -> Vec<u8> {
+    let length = payload.len() as u32;
+    let mut chunk = Vec::with_capacity(payload.len() + 12);
+    chunk.extend_from_slice(&length.to_be_bytes());
+    chunk.extend_from_slice(b"eXIf");
+    chunk.extend_from_slice(payload);
+    let mut hasher = Hasher::new();
+    hasher.update(b"eXIf");
+    hasher.update(payload);
+    let crc = hasher.finalize();
+    chunk.extend_from_slice(&crc.to_be_bytes());
+    chunk
 }
 
 fn is_app_marker(marker: u8) -> bool {
@@ -807,4 +906,84 @@ fn format_offset_string(minutes: i16) -> String {
 
 fn bool_true() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_capture_time() -> CaptureTimeInfo {
+        CaptureTimeInfo {
+            value: Some("2024:01:02 03:04:05".to_string()),
+            offset_minutes: Some(540),
+            timestamp_ms: Some(1_704_165_845_000.0),
+            source: "exif".to_string(),
+        }
+    }
+
+    fn build_chunk(kind: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut chunk = Vec::with_capacity(data.len() + 12);
+        chunk.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        chunk.extend_from_slice(kind);
+        chunk.extend_from_slice(data);
+        let mut hasher = Hasher::new();
+        hasher.update(kind);
+        hasher.update(data);
+        chunk.extend_from_slice(&hasher.finalize().to_be_bytes());
+        chunk
+    }
+
+    fn make_minimal_png() -> Vec<u8> {
+        let mut png = Vec::new();
+        png.extend_from_slice(&PNG_SIGNATURE);
+        let mut ihdr = Vec::new();
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.extend_from_slice(&1u32.to_be_bytes());
+        ihdr.push(8);
+        ihdr.push(6);
+        ihdr.push(0);
+        ihdr.push(0);
+        ihdr.push(0);
+        png.extend_from_slice(&build_chunk(b"IHDR", &ihdr));
+        let idat_data = [0x78u8, 0x9c, 0x63, 0x60, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01];
+        png.extend_from_slice(&build_chunk(b"IDAT", &idat_data));
+        png.extend_from_slice(&build_chunk(b"IEND", &[]));
+        png
+    }
+
+    fn collect_chunk_types(bytes: &[u8]) -> Vec<[u8; 4]> {
+        let mut cursor = PNG_SIGNATURE.len();
+        let mut kinds = Vec::new();
+        while cursor + 8 <= bytes.len() {
+            let length = u32::from_be_bytes([
+                bytes[cursor],
+                bytes[cursor + 1],
+                bytes[cursor + 2],
+                bytes[cursor + 3],
+            ]) as usize;
+            let mut kind = [0u8; 4];
+            kind.copy_from_slice(&bytes[cursor + 4..cursor + 8]);
+            kinds.push(kind);
+            let data_end = cursor + 8 + length;
+            let chunk_end = data_end + 4;
+            if chunk_end > bytes.len() || &kind == b"IEND" {
+                break;
+            }
+            cursor = chunk_end;
+        }
+        kinds
+    }
+
+    #[test]
+    fn png_rewrite_inserts_exif_chunk() {
+        let png = make_minimal_png();
+        let capture = sample_capture_time();
+        let rewritten = rewrite_png_capture_time(&png, &capture).expect("rewrite should succeed");
+        assert_eq!(&rewritten[..8], &PNG_SIGNATURE);
+        let kinds = collect_chunk_types(&rewritten);
+        assert_eq!(kinds[0], *b"IHDR");
+        assert_eq!(kinds[1], *b"eXIf");
+        assert!(kinds.iter().any(|kind| kind == b"IDAT"));
+        assert!(kinds.iter().any(|kind| kind == b"IEND"));
+    }
 }
