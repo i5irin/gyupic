@@ -1,0 +1,39 @@
+# これは開発者のプロンプトのメモです。
+# LLM AIが編集するファイルではありません。
+
+---
+
+あなた（Codex）とVSCodeのDevContainer内のローカル環境で作業をしていました。
+今回「ぎゅっぴく」プロジェクトでWASM（Rust）を追加で使うことになり、DevContainer環境を更新しりビルドしました。
+あなたは前回（過去1時間以内にあった）までのチャットの情報を憶えていないですよね？
+
+憶えていないなら特に以下を読んでおいてください。
+
+前回からの引き継ぎに使える情報は
+memo.txtとprogress-memo.txtにあります。
+このプロジェクトの方針を決めるドキュメントは
+docs/requirements.ja.mdとdocs/design.ja.mdにあります。
+他にも何に使うかわからないファイルがあると思うのでその時は質問してください。
+
+現状についてはPhase3という画像の処理やファイル形式変換などを整備するフェーズがあり、そこでメタデータ周りの大まかな仕様変更が発生しました。
+そのためdocs/metadata-spec.ja.mdというドキュメントを一旦作成し、これを正としてdocs/requirements.ja.mdとdocs/design.ja.mdを更新しました。
+これからはdocs/requirements.ja.mdとdocs/design.ja.mdをベースに作業を進めますが、大まかな現状の実装との差分仕様はdocs/metadata-spec.ja.mdを見れば少し分かる可能性もあります。
+
+仕掛について大まかに説明すると「ぎゅっぴく」のPhase3中で画像のメタデータ周りの処理が既存ライブラリでは難しかったためWASMのRustを使うことになり、現在WASM開発のためのベースを整えたところです。
+これから私がnpm run wasm:buildなどのコマンドが動作するか確認します。
+結果的に問題なさそうでしたらWASMパッケージの実装に取り掛かってもらいます。
+
+「npm run wasm:build」コマンドが成功しました。
+docs/requirements.ja.mdとdocs/design.ja.mdを基準のドキュメントとしつつ必要に応じてdocs/metadata-spec.ja.mdを確認しながら、memo.txtとprogress-memo.txtで現在仕掛の内容を確認し、WASMパッケージの実装に取り掛かっていただきたいです。
+適度にコミットを分けたいので、編集を区切りがいいところや粒度的に分けて良さそうなところで一時完了しながら進めていきましょう。
+memo.txtとprogress-memo.txtは現在の進捗を管理し今後のあなたとの別のチャットに引き継ぐ内容も含むため作業の都度更新していってください。
+
+feat: add capture time core wasm implementation
+
+
+「rustup default stable && rustup target add wasm32-unknown-unknown」を開発者が必要な都度実行するのは手間な気がします。
+DockerやDevContainerの設定でnpm run wasm:buildがいきなり通るようにしておいても良さそうですがどう思いますか？
+
+また、messageJaとmessageEnなど日英版のメッセージを用意してくれていますが、Phase3時点ではUIとしては英語だけで十分です。
+多言語はPhase4以降に検討します。その旨ドキュメントを更新の上、進捗管理にも記載をお願いします。
+実装の修正もお願いしたいです。
