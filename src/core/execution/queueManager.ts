@@ -129,6 +129,7 @@ export default class QueueManager {
       jpegQuality: context.settings.jpegQuality,
       outputFormat: context.settings.outputFormat,
       filenameStrategy: context.settings.filenameStrategy,
+      filenameTimestampSource: context.settings.filenameTimestampSource,
       timestampWriteMode: context.settings.timestampWriteMode,
       rewriteExif: context.settings.rewriteExif,
       injectFromEditedTime: context.settings.injectFromEditedTime,
