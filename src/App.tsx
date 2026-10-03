@@ -20,7 +20,13 @@ import {
   getDelivery,
 } from './domain/deliveryCatalog';
 import { getPickup } from './domain/pickupCatalog';
-import { listPresets, getPreset, type PresetId } from './domain/presets';
+import {
+  listPresets,
+  getPreset,
+  type PresetId,
+  type OutputFormat,
+  type FilenameSource,
+} from './domain/presets';
 import QueueManager from './core/execution/queueManager';
 
 type PresetOptionView = {
@@ -347,9 +353,19 @@ export default function App() {
   );
 
   const onApplySettings = useCallback(
-    (jpegQuality: number) => {
-      dispatch({ type: 'SET_SETTINGS', settings: { jpegQuality } });
-      showToast(`Quality applied: ${Math.round(jpegQuality * 100)}%`);
+    (nextSettings: {
+      jpegQuality: number;
+      outputFormat: OutputFormat;
+      filenameSource: FilenameSource;
+    }) => {
+      dispatch({ type: 'SET_SETTINGS', settings: nextSettings });
+      const qualityPct = Math.round(nextSettings.jpegQuality * 100);
+      const formatLabel = nextSettings.outputFormat.toUpperCase();
+      const filenameLabel =
+        nextSettings.filenameSource === 'exif' ? 'Exif' : 'File time';
+      showToast(
+        `Settings applied (${qualityPct}% · ${formatLabel} · ${filenameLabel})`,
+      );
     },
     [dispatch, showToast],
   );
@@ -471,6 +487,8 @@ export default function App() {
 
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
+        currentOutputFormat={state.settings.outputFormat}
+        currentFilenameSource={state.settings.filenameSource}
         presetId={state.settings.presetId}
         presetOptions={presetOptions}
         onChangePreset={onChangePreset}

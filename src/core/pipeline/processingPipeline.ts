@@ -1,18 +1,33 @@
 import ImageFileService from '../../services/image-file-service';
 import type { DeliveryId } from '../../domain/deliveryCatalog';
 import type { PickupId } from '../../domain/pickupCatalog';
-import type { MetadataPolicyMode, PresetId } from '../../domain/presets';
-import type { JobMetadataInfo } from '../../state/jobTypes';
-import { applyTimestamp, deriveTimestamp } from '../metadata/metadataPolicy';
+import type {
+  FilenameSource,
+  MetadataPolicyMode,
+  OutputFormat,
+  PresetId,
+} from '../../domain/presets';
+import type {
+  DerivedTimestamp,
+  JobMetadataInfo,
+} from '../../state/jobTypes';
+import {
+  applyTimestamp,
+  deriveTimestamp,
+  parseExifDateTime,
+} from '../metadata/metadataPolicy';
 import {
   canUseOffscreenConversion,
   convertWithOffscreenCanvas,
 } from '../conversion/offscreenCanvasConverter';
+import { OUTPUT_FORMAT_CONFIG } from '../../shared/outputFormatConfig';
 import { asProcessingPipelineError } from './processingErrors';
 
 export type ProcessingPipelineParams = {
   sourceFile: File;
   jpegQuality: number;
+  outputFormat: OutputFormat;
+  filenameSource: FilenameSource;
   pickupId: PickupId;
   deliveryId: DeliveryId;
   presetId: PresetId;
@@ -26,12 +41,18 @@ export type ProcessingPipelineResult = {
   reductionRatio: number;
   metadata: JobMetadataInfo;
   warningReason?: string;
+  filenameWarning?: string;
+  expectedFileName?: string;
 };
 
-async function convertSourceToJpeg(file: File, quality: number): Promise<File> {
+async function convertSourceToFormat(
+  file: File,
+  quality: number,
+  format: OutputFormat,
+): Promise<File> {
   if (canUseOffscreenConversion()) {
     try {
-      return await convertWithOffscreenCanvas(file, quality);
+      return await convertWithOffscreenCanvas(file, { format, quality });
     } catch (error) {
       throw asProcessingPipelineError(
         error,
@@ -51,15 +72,107 @@ async function convertSourceToJpeg(file: File, quality: number): Promise<File> {
     );
   }
   try {
-    const converted = await ImageFileService.convertToJpeg(imageFile, quality);
-    return converted.asFile();
+    return await ImageFileService.convertToFormat(
+      imageFile,
+      format,
+      quality,
+    );
   } catch (error) {
     throw asProcessingPipelineError(
       error,
       'convert_failed',
-      'Failed to convert image to JPEG',
+      'Failed to convert image to target format',
     );
   }
+}
+
+function getBaseName(fileName: string): string {
+  const lastDotIndex = fileName.lastIndexOf('.');
+  if (lastDotIndex === -1) {
+    return fileName;
+  }
+  return fileName.slice(0, lastDotIndex);
+}
+
+function sanitizeBaseName(raw: string): string {
+  const normalized = raw.normalize('NFKC');
+  const sanitized = normalized
+    .replace(/[^\p{L}\p{N}\-_.]+/gu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return sanitized.length > 0 ? sanitized.slice(0, 120) : 'image';
+}
+
+function formatTimestampForFilename(date: Date): string {
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(
+    date.getDate(),
+  )}_${pad(date.getHours())}${pad(date.getMinutes())}${pad(
+    date.getSeconds(),
+  )}`;
+}
+
+type FilenamePlan = {
+  targetName?: string;
+  timestampMs?: number;
+  warning?: string;
+};
+
+function resolveTimestampForFilename(
+  filenameSource: FilenameSource,
+  derived: DerivedTimestamp,
+  sourceFile: File,
+): { timestampMs?: number; warning?: string } {
+  if (filenameSource === 'exif') {
+    if (derived.kind !== 'exif') {
+      return {
+        warning: 'Rename skipped: Exif timestamp unavailable.',
+      };
+    }
+    const parsed = parseExifDateTime(derived.value, derived.offset);
+    if (parsed === null) {
+      return {
+        warning: 'Rename skipped: Failed to parse Exif timestamp.',
+      };
+    }
+    return { timestampMs: parsed };
+  }
+  if (filenameSource === 'file-last-modified') {
+    if (Number.isFinite(sourceFile.lastModified) && sourceFile.lastModified > 0) {
+      return { timestampMs: sourceFile.lastModified };
+    }
+    return {
+      warning: 'Rename skipped: File modified timestamp unavailable.',
+    };
+  }
+  return { warning: 'Rename skipped: Unsupported timestamp source.' };
+}
+
+function buildFilenamePlan(options: {
+  filenameSource: FilenameSource;
+  derived: DerivedTimestamp;
+  sourceFile: File;
+  outputFormat: OutputFormat;
+}): FilenamePlan {
+  const { filenameSource, derived, sourceFile, outputFormat } = options;
+  const timestampInfo = resolveTimestampForFilename(
+    filenameSource,
+    derived,
+    sourceFile,
+  );
+  if (!timestampInfo.timestampMs) {
+    return {
+      warning: timestampInfo.warning,
+    };
+  }
+  const date = new Date(timestampInfo.timestampMs);
+  const timestamp = formatTimestampForFilename(date);
+  const baseName = sanitizeBaseName(getBaseName(sourceFile.name || ''));
+  const config = OUTPUT_FORMAT_CONFIG[outputFormat];
+  return {
+    targetName: `${timestamp}_${baseName}${config.extension}`,
+    timestampMs: timestampInfo.timestampMs,
+  };
 }
 
 export async function runProcessingPipeline(
@@ -68,12 +181,18 @@ export async function runProcessingPipeline(
   const {
     sourceFile,
     jpegQuality,
+    outputFormat,
+    filenameSource,
     pickupId,
     deliveryId,
     presetId,
     metadataPolicyMode,
   } = params;
-  const convertedFile = await convertSourceToJpeg(sourceFile, jpegQuality);
+  const convertedFile = await convertSourceToFormat(
+    sourceFile,
+    jpegQuality,
+    outputFormat,
+  );
 
   let derivedTimestamp: Awaited<ReturnType<typeof deriveTimestamp>>;
   try {
@@ -88,6 +207,13 @@ export async function runProcessingPipeline(
     );
   }
 
+  const filenamePlan = buildFilenamePlan({
+    filenameSource,
+    derived: derivedTimestamp,
+    sourceFile,
+    outputFormat,
+  });
+
   let applyResult: Awaited<ReturnType<typeof applyTimestamp>>;
   try {
     applyResult = await applyTimestamp({
@@ -95,6 +221,8 @@ export async function runProcessingPipeline(
       derived: derivedTimestamp,
       deliveryId,
       metadataPolicyMode,
+      fileNameOverride: filenamePlan.targetName,
+      lastModifiedOverride: filenamePlan.timestampMs,
     });
   } catch (error) {
     throw asProcessingPipelineError(
@@ -125,5 +253,7 @@ export async function runProcessingPipeline(
       reason: applyResult.warningReason,
     },
     warningReason: applyResult.warningReason,
+    filenameWarning: filenamePlan.warning,
+    expectedFileName: outFile.name,
   };
 }

@@ -10,6 +10,10 @@ export type MetadataPolicyMode =
   | 'strict-best-effort'
   | 'fallback-filetime';
 
+export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'gif';
+
+export type FilenameSource = 'exif' | 'file-last-modified';
+
 export const PresetIds = {
   IosPhotosRecommended: 'preset.ios.photos.recommended',
   IosShareBeta: 'preset.ios.share.beta',
@@ -26,6 +30,8 @@ export type PresetDefinition = {
   deliveryId: DeliveryId;
   defaultJpegQuality: number;
   metadataPolicyMode: MetadataPolicyMode;
+  defaultOutputFormat: OutputFormat;
+  defaultFilenameSource: FilenameSource;
   category: 'stable' | 'experimental';
   requiresHttps?: boolean;
   requiresNavigatorShareFiles?: boolean;
@@ -40,6 +46,8 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
     deliveryId: DeliveryIds.Photos,
     defaultJpegQuality: 0.85,
     metadataPolicyMode: 'strict',
+    defaultOutputFormat: 'jpeg',
+    defaultFilenameSource: 'exif',
     category: 'stable',
   },
   [PresetIds.IosShareBeta]: {
@@ -50,6 +58,8 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
     deliveryId: DeliveryIds.ShareSheet,
     defaultJpegQuality: 0.75,
     metadataPolicyMode: 'strict-best-effort',
+    defaultOutputFormat: 'jpeg',
+    defaultFilenameSource: 'exif',
     category: 'experimental',
     requiresHttps: true,
     requiresNavigatorShareFiles: true,
@@ -62,6 +72,8 @@ export const PRESETS: Record<PresetId, PresetDefinition> = {
     deliveryId: DeliveryIds.Files,
     defaultJpegQuality: 0.85,
     metadataPolicyMode: 'fallback-filetime',
+    defaultOutputFormat: 'jpeg',
+    defaultFilenameSource: 'file-last-modified',
     category: 'experimental',
   },
 };

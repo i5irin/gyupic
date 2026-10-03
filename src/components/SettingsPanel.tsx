@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
+import type {
+  FilenameSource,
+  OutputFormat,
+} from '../domain/presets';
 import styles from './SettingsPanel.module.css';
 
 type DeliveryInfo = {
@@ -19,16 +23,24 @@ type PresetOption = {
 
 type Props = {
   currentJpegQuality: number;
+  currentOutputFormat: OutputFormat;
+  currentFilenameSource: FilenameSource;
   presetId: string;
   presetOptions: PresetOption[];
   onChangePreset: (id: string) => void;
   pickupInfo?: { title: string; description: string };
   deliveryInfo?: DeliveryInfo;
-  onApply: (jpegQuality: number) => void;
+  onApply: (settings: {
+    jpegQuality: number;
+    outputFormat: OutputFormat;
+    filenameSource: FilenameSource;
+  }) => void;
 };
 
 export default function SettingsPanel({
   currentJpegQuality,
+  currentOutputFormat,
+  currentFilenameSource,
   presetId,
   presetOptions,
   onChangePreset,
@@ -50,14 +62,36 @@ export default function SettingsPanel({
   const [draftQuality, setDraftQuality] = useState(() =>
     normalize(currentJpegQuality),
   );
+  const [draftOutputFormat, setDraftOutputFormat] =
+    useState<OutputFormat>(currentOutputFormat);
+  const [draftFilenameSource, setDraftFilenameSource] =
+    useState<FilenameSource>(currentFilenameSource);
 
   useEffect(() => {
     setDraftQuality(normalize(currentJpegQuality));
   }, [currentJpegQuality]);
 
+  useEffect(() => {
+    setDraftOutputFormat(currentOutputFormat);
+  }, [currentOutputFormat]);
+
+  useEffect(() => {
+    setDraftFilenameSource(currentFilenameSource);
+  }, [currentFilenameSource]);
+
   const isDirty = useMemo(
-    () => normalize(draftQuality) !== normalize(currentJpegQuality),
-    [draftQuality, currentJpegQuality],
+    () =>
+      normalize(draftQuality) !== normalize(currentJpegQuality) ||
+      draftOutputFormat !== currentOutputFormat ||
+      draftFilenameSource !== currentFilenameSource,
+    [
+      draftQuality,
+      currentJpegQuality,
+      draftOutputFormat,
+      currentOutputFormat,
+      draftFilenameSource,
+      currentFilenameSource,
+    ],
   );
 
   const selectedPreset = useMemo(
@@ -88,6 +122,18 @@ export default function SettingsPanel({
         return 'Guaranteed';
     }
   };
+
+  const outputFormatOptions: { value: OutputFormat; label: string }[] = [
+    { value: 'jpeg', label: 'JPEG' },
+    { value: 'png', label: 'PNG' },
+    { value: 'webp', label: 'WebP' },
+    { value: 'gif', label: 'GIF' },
+  ];
+
+  const filenameSourceOptions: { value: FilenameSource; label: string }[] = [
+    { value: 'exif', label: 'Exif capture time' },
+    { value: 'file-last-modified', label: 'File modified time' },
+  ];
 
   return (
     <section className={styles.settingsPanel} aria-label="Settings">
@@ -201,11 +247,63 @@ export default function SettingsPanel({
           </div>
         </div>
 
+        <div className={styles.settingsPanelRow}>
+          <label className={styles.settingsPanelLabel} htmlFor="outputFormat">
+            Output Format
+            <select
+              id="outputFormat"
+              className={styles.settingsPanelSelect}
+              value={draftOutputFormat}
+              onChange={(e) =>
+                setDraftOutputFormat(e.currentTarget.value as OutputFormat)
+              }
+            >
+              {outputFormatOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className={styles.settingsPanelRow}>
+          <label className={styles.settingsPanelLabel} htmlFor="filenameSource">
+            Filename Timestamp
+            <select
+              id="filenameSource"
+              className={styles.settingsPanelSelect}
+              value={draftFilenameSource}
+              onChange={(e) =>
+                setDraftFilenameSource(
+                  e.currentTarget.value as FilenameSource,
+                )
+              }
+            >
+              {filenameSourceOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className={styles.settingsPanelNote}>
+            Filenames adopt the selected timestamp; failures fall back to the
+            original name with a warning.
+          </div>
+        </div>
+
         <div className={styles.settingsPanelActions}>
           <button
             type="button"
             className={styles.settingsPanelApplyButton}
-            onClick={() => onApply(normalize(draftQuality))}
+            onClick={() =>
+              onApply({
+                jpegQuality: normalize(draftQuality),
+                outputFormat: draftOutputFormat,
+                filenameSource: draftFilenameSource,
+              })
+            }
             disabled={!isDirty}
           >
             Apply
