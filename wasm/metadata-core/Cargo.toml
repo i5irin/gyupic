@@ -1,0 +1,28 @@
+[package]
+name = "metadata_core"
+version = "0.1.0"
+edition = "2021"
+description = "Gyuppiku metadata policy core (WASM)"
+authors = ["Gyuppiku Dev"]
+license = "MIT"
+repository = "https://github.com/i5irin/gyupic"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = { version = "0.2", features = ["serde-serialize"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde-wasm-bindgen = "0.5"
+console_error_panic_hook = { version = "0.1", optional = true }
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+
+[features]
+default = ["console_error_panic_hook"]
+
+[profile.release]
+opt-level = "s"
+codegen-units = 1
+lto = true
