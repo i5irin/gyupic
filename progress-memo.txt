@@ -1,0 +1,47 @@
+# progress-memo（コミット対象外）
+
+このファイルは Phase3/Phase4 の進捗・懸念・引き継ぎ事項を共有するためのメモ。
+チャットを切り替える／引き継ぐ際は、この内容を冒頭に貼り付ける。
+**更新ルール**:
+- 主要な方針決定・タスク完了・課題発生の度に必ず追記する（最少1日1回以上）。
+- エントリは日付順で追加し、最新情報を上に置く。
+- 進捗・仕掛・懸念・次アクションをそれぞれ箇条書きで必ず書く。
+- 新しいチャットを開始／引き継ぐ際は、本ファイルの最新エントリと必要に応じて `memo.txt` の該当抜粋を初回プロンプトへ貼り付ける。
+
+---
+
+## 2026-01-03（WASM足場追加）
+- **進捗**: `wasm/metadata-core` Rustクレート・README・.gitignoreを作成し、`derive/apply/plan_filename` APIのスタブと Warning ひな形を実装。`src/core/metadata/wasmBridge.ts` でローダーI/FとWarning型を定義し、`package.json` に `npm run wasm:build` を追加。`docs/design.ja.md` に Approach3 のアーキテクチャ（ビルド/Loader/plan_filename責務）を追記。
+- **仕掛**: Rust側の実処理（Exif/GPS/XMP/ICC/CICP）未実装、TS側はまだ metadataPolicy.ts を使っている。WorkerからWASMへバイナリを渡す処理や `configureMetadataCoreLoader` の呼び出しポイントが未着手。
+- **懸念**: wasm-pack の導入が新規依存になるため、CI/開発環境のセットアップ手順が追加で必要。`src/core/metadata/wasmBridge.ts` の型を今後どこから参照するかを決めないと二重管理になる恐れ。
+- **次アクション**: (1) Worker 初期化時に `configureMetadataCoreLoader` を設定し、WASM読み込みエラーハンドリングを整備。(2) Rust実装のI/F（Warningコードマッピング等）を固め、TS側 migration plan を `memo.txt` へ細分化。(3) `set-30-light` などテスト記録のテンプレを更新して、WASM導入後のリグレッションチェック手順を準備。
+
+## 2026-01-03（WASM移行方針）
+- **進捗**: Phase3の実装方針として「Approach3（Rust/WASMベースのMetadata Core）」を採用。progress-memo / memo を初回プロンプトへ貼り付ける運用を正式ルール化し、引き継ぎコストを下げる準備を開始。
+- **仕掛**: Rust/WASMコアのAPI設計、`metadataSpecVersion=1.0` I/F定義、TS側ブリッジの設計、docs/tests（preset-scenarios）との突き合わせ。
+- **懸念**: Rust/WASM導入によるビルドチェーン追加・ブラウザ互換性・バンドルサイズ増などリスク大。現状のTS実装と段階的に差し替えないと長期ブランチ化しやすい。set-30-light 等の証跡が空のままでPhase3クローズ条件が満たせない。
+- **次アクション**: (1) `memo.txt` にWASM運用ルールと手順を追記。(2) Rustプロジェクト雛形＋ビルド手順（wasm-pack 等）の調査結果を docs/memo に記録。(3) QueueManager/ProcessingPipeline 側のI/F変更点を洗い出し、段階的にタスク分割する。
+
+## 2026-01-03
+- **進捗**: metadata-spec v1.0 を再精読し、`docs/requirements.ja.md` / `docs/design.ja.md` を完全同期。Capture Time OFF時の `ORDERING_REQUIREMENT_NOT_MET` 取り扱いや、P2リネーム失敗Warning、ICC/CICP best-effort方針（UI非露出）を要件・設計両面で明文化した。
+- **仕掛**: 実装（MetadataPolicy/FilenamePolicy/SettingsPanel）側は未更新。warningテンプレ返却、`metadataSpecVersion` ハンドリング、`scenario.folders-to-photos` の `filenameStrategy` 既定値などコード反映が必要。docs/tests/preset-scenarios.ja.md も未着手のため、Phase3クローズ条件（ログ証跡）がまだ揃っていない。
+- **懸念**: ドキュメントだけ先行したことで、コードと仕様の乖離が発生中（色管理のbest-effort化、Capture Time OFF時のWarning扱い、P2 warning文言など）。実装が追いつくまで利用者に誤ったUIを見せるリスクがある。set-30-light / set-50-heavy の再計測ログも未提出。
+- **次アクション**: (1) MetadataPolicy/FilenamePolicy/SettingsPanel の実装差分を洗い、docs差分をコードへ適用。(2) `docs/tests/preset-scenarios.ja.md` に新テンプレ＋ログ初期投入。（Photos→Photos/P2/P3 各1 run 以上）(3) progress-memo/memo の更新ルールに沿って、チャット切替時はこのセクションから貼付。
+
+## 2026-01-02 (午後)
+- **進捗**: 要件書/設計書をシナリオプリセット仕様へ更新し、`docs/tests/preset-scenarios.ja.md` を端末実態（iPhone 17 Pro / macOS 15.6.1 / Windows 11 Parallels）ベースのテンプレに差し替え。`memo.txt` にPreset刷新内容を追記。
+- **仕掛**: コード全面更新（domain presets, App/Settings UI, QueueManager, metadataPolicy, pipeline, worker params）を進行中。高度設定UIやログ整備をコードへ反映させるタスクが残っている。
+- **懸念**: 実装切り替え中はビルド失敗やwarning表示の回 regressions リスクが高い。MetadataPolicyやWorker通信の型変更が広範囲なので、テスト未整備の箇所は特に注意が必要。
+- **次アクション**: (1) Preset/Orderingモデルの実装差し替えを完了し、`npm run build` で型崩れを確認。(2) preset-scenarios の最初の実測ログを記入。(3) progress-memo を都度更新し、引き継ぎ時はこのファイル冒頭を貼るルールを徹底。
+
+## 2026-01-02 (夕方)
+- **進捗**: シナリオ型Presetの実装を完了。App/Settings/UI/Queue/Worker/MetadataPolicy/ProcessingPipelineが全て新モデルに合わせて動作し、`npm run build` 成功を確認。`docs/tests/preset-scenarios.ja.md` には端末情報を反映済み。
+- **仕掛**: 実機テスト（Photos→Photos / Folders→Photos / Photos→Folders）とwarning文言の最終確認。preset-scenariosへの結果記入が未着手。
+- **懸念**: 並び順検証ログが空のため、Phase3クローズ条件を満たしていない。高度設定の差分表示はUI上で可能だがUX文言は仮のままなので、ユーザーテストでフィードバックを得る必要あり。
+- **次アクション**: 1) set-30-light/set-50-heavy を各シナリオで実行し、warning/エラーを `docs/tests/preset-scenarios.ja.md` に記録。2) SettingsPanel文言・トーストを実機確認し、必要なら細かなコピー調整。3) 進捗をこのファイルへ追記し、次チャット冒頭で貼り付ける。
+
+## 2026-01-02
+- **進捗**: 新Presetモデル方針を確定（pickup/delivery/guarantee概念を廃止し、用途ベースのシナリオPresetへ移行）。`memo.txt` を更新済み。
+- **仕掛**: 要件書/設計書の刷新、Presetシナリオベースのテストテンプレ再構築。
+- **懸念**: MetadataPolicy / QueueManager が deliveryId 前提のため構造変更が大きい。テストログの再スタート時に旧シナリオとの比較データが残らない点に注意。
+- **次アクション**: (1) docs/requirements.ja.md と docs/design.ja.md を新仕様で更新、(2) `docs/tests/preset-scenarios.ja.md` の用途をPresetシナリオカタログとして整備する草案作成。
