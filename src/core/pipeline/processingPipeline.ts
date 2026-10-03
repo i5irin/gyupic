@@ -2,11 +2,14 @@ import ImageFileService from '../../services/image-file-service';
 import type {
   FilenameStrategy,
   FilenameTimestampSource,
-  OrderingRequirement,
   OutputFormat,
   PresetId,
   TimestampWriteMode,
 } from '../../domain/presets';
+import {
+  buildMetadataRequirements,
+  shouldDeriveCaptureTime,
+} from '../../domain/metadataRequirements';
 import type { DerivedTimestamp, JobMetadataInfo } from '../../state/jobTypes';
 import {
   applyMetadataWithMetadataCore,
@@ -29,10 +32,7 @@ export type ProcessingPipelineParams = {
   filenameStrategy: FilenameStrategy;
   filenameTimestampSource: FilenameTimestampSource;
   timestampWriteMode: TimestampWriteMode;
-  rewriteExif: boolean;
-  injectFromEditedTime: boolean;
   presetId: PresetId;
-  ordering: OrderingRequirement;
 };
 
 export type ProcessingPipelineResult = {
@@ -238,21 +238,20 @@ export async function runProcessingPipeline(
     filenameStrategy,
     filenameTimestampSource,
     timestampWriteMode,
-    rewriteExif,
-    injectFromEditedTime,
     presetId,
-    ordering,
   } = params;
+  const metadataRequirements = buildMetadataRequirements({
+    filenameStrategy,
+    filenameTimestampSource,
+    timestampWriteMode,
+  });
   const convertedFile = await convertSourceToFormat(
     sourceFile,
     jpegQuality,
     outputFormat,
   );
 
-  const captureTimeEnabled =
-    timestampWriteMode !== 'off' ||
-    (filenameStrategy === 'timestamped' &&
-      filenameTimestampSource === 'captureTime');
+  const captureTimeEnabled = shouldDeriveCaptureTime(metadataRequirements);
 
   let deriveSession: Awaited<
     ReturnType<typeof deriveTimestampWithMetadataCore>
@@ -284,10 +283,7 @@ export async function runProcessingPipeline(
   const applyResult = await applyMetadataWithMetadataCore({
     file: convertedFile,
     session: deriveSession,
-    ordering,
-    timestampWriteMode,
-    rewriteExif,
-    injectFromEditedTime,
+    requirements: metadataRequirements,
     outputFormat,
     fileNameOverride: filenamePlan.targetName,
     lastModifiedOverrideMs: filenamePlan.timestampMs,
@@ -316,10 +312,11 @@ export async function runProcessingPipeline(
 
   const metadata: JobMetadataInfo = {
     presetId,
-    ordering,
     derived: derivedTimestamp,
     status: applyResult.status,
     reason: applyResult.warningReason,
+    captureTimeBadge: applyResult.captureTimeBadge,
+    warnings: applyResult.warnings.map((warning) => warning.message),
   };
 
   return {

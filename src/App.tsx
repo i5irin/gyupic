@@ -364,8 +364,6 @@ export default function App() {
       filenameStrategy: FilenameStrategy;
       filenameTimestampSource: FilenameTimestampSource;
       timestampWriteMode: TimestampWriteMode;
-      rewriteExif: boolean;
-      injectFromEditedTime: boolean;
     }) => {
       dispatch({ type: 'SET_SETTINGS', settings: nextSettings });
       const qualityPct = Math.round(nextSettings.jpegQuality * 100);
@@ -388,9 +386,8 @@ export default function App() {
             return 'Exif time';
         }
       })();
-      const exifLabel = nextSettings.rewriteExif ? 'Exif ON' : 'Exif OFF';
       showToast(
-        `Settings applied (${qualityPct}% · ${formatLabel} · ${filenameLabel} · ${timestampLabel} · ${exifLabel})`,
+        `Settings applied (${qualityPct}% · ${formatLabel} · ${filenameLabel} · ${timestampLabel})`,
       );
     },
     [dispatch, showToast],
@@ -522,8 +519,6 @@ export default function App() {
         currentFilenameStrategy={state.settings.filenameStrategy}
         currentFilenameTimestampSource={state.settings.filenameTimestampSource}
         currentTimestampMode={state.settings.timestampWriteMode}
-        rewriteExif={state.settings.rewriteExif}
-        injectFromEditedTime={state.settings.injectFromEditedTime}
         presetId={state.settings.presetId}
         presetOptions={presetOptions}
         activePreset={activePresetInfo}

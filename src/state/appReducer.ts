@@ -42,8 +42,6 @@ function buildSettingsFromPreset(
     filenameStrategy: defaults.filenameStrategy,
     filenameTimestampSource: defaults.filenameTimestampSource,
     timestampWriteMode: defaults.timestampWriteMode,
-    rewriteExif: defaults.rewriteExif,
-    injectFromEditedTime: defaults.injectFromEditedTime,
   };
 }
 
@@ -80,12 +78,10 @@ export default function appReducer(
     }
 
     case 'START_ITEM': {
-      const preset = ensurePreset(state.settings.presetId);
       const snapshot: JobCaptureSnapshot = {
         runId: state.runId,
         settingsRev: state.settingsRev,
         presetId: state.settings.presetId,
-        ordering: preset.ordering,
         startedAt: Date.now(),
       };
       return {
