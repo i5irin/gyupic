@@ -1,11 +1,53 @@
 import ImageFile from '../models/image-file';
 
-export type JobStatus = 'queued' | 'processing' | 'done' | 'error' | 'canceled';
+export const DeliveryScenarioIds = {
+  IosPhotos: 'ios.photos',
+  IosShareSheet: 'ios.shareSheet',
+  IosFiles: 'ios.files',
+  AndroidTodo: 'android.todo',
+  DesktopTodo: 'desktop.todo',
+} as const;
+
+export type DeliveryScenarioId =
+  (typeof DeliveryScenarioIds)[keyof typeof DeliveryScenarioIds];
+
+export const DEFAULT_DELIVERY_SCENARIO_ID: DeliveryScenarioId =
+  DeliveryScenarioIds.IosPhotos;
+
+export type JobStatus =
+  | 'queued'
+  | 'processing'
+  | 'done'
+  | 'warning'
+  | 'error'
+  | 'canceled';
 
 export type JobSource = {
   file: File;
   previewUrl: string;
   imageFile: ImageFile;
+};
+
+export type ExifTimestampField =
+  | 'DateTimeOriginal'
+  | 'DateTimeDigitized'
+  | 'DateTime';
+
+export type DerivedTimestamp =
+  | { kind: 'exif'; field: ExifTimestampField; value: string }
+  | { kind: 'file'; value: number }
+  | { kind: 'unavailable' };
+
+export type MetadataGuaranteeStatus =
+  | 'guaranteed'
+  | 'warning'
+  | 'skipped';
+
+export type JobMetadataInfo = {
+  scenarioId: DeliveryScenarioId;
+  derived: DerivedTimestamp;
+  status: MetadataGuaranteeStatus;
+  reason?: string;
 };
 
 export type JobOutput = {
@@ -17,6 +59,7 @@ export type JobOutput = {
   sizeAfter: number;
   /** 0.0 - 1.0 (e.g. 0.42 means 42% smaller) */
   reductionRatio: number;
+  metadata?: JobMetadataInfo;
 };
 
 export type JobItem = {
@@ -27,6 +70,8 @@ export type JobItem = {
   src: JobSource;
   out?: JobOutput;
   error?: string;
+  warningReason?: string;
+  captured?: JobCaptureSnapshot;
 };
 
 export type ConvertSettings = {
@@ -40,4 +85,12 @@ export type AppState = {
   settingsRev: number;
   activeItemId: string | null;
   lastAddedIds: string[];
+  deliveryScenarioId: DeliveryScenarioId;
+};
+
+export type JobCaptureSnapshot = {
+  runId: number;
+  settingsRev: number;
+  deliveryScenarioId: DeliveryScenarioId;
+  startedAt: number;
 };

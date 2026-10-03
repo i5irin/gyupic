@@ -1,16 +1,29 @@
-import type { AppState, ConvertSettings, JobItem } from './jobTypes';
+import type {
+  AppState,
+  ConvertSettings,
+  DeliveryScenarioId,
+  JobCaptureSnapshot,
+  JobItem,
+} from './jobTypes';
+import { DEFAULT_DELIVERY_SCENARIO_ID } from './jobTypes';
 
 export type AppAction =
   | { type: 'ADD_ITEMS'; items: JobItem[] }
   | { type: 'START_ITEM'; id: string }
-  | { type: 'FINISH_ITEM'; id: string; out: JobItem['out'] }
+  | {
+      type: 'FINISH_ITEM';
+      id: string;
+      out: JobItem['out'];
+      warningReason?: string;
+    }
   | { type: 'FAIL_ITEM'; id: string; error: string }
   | { type: 'RETRY_ITEM'; id: string }
   | { type: 'CANCEL_ITEM'; id: string }
   | { type: 'REQUEUE_ITEM'; id: string }
   | { type: 'END_ITEM'; id: string }
   | { type: 'CLEAR_SESSION' }
-  | { type: 'SET_SETTINGS'; settings: Partial<ConvertSettings> };
+  | { type: 'SET_SETTINGS'; settings: Partial<ConvertSettings> }
+  | { type: 'SET_DELIVERY_SCENARIO'; scenarioId: DeliveryScenarioId };
 
 export const initialState: AppState = {
   items: [],
@@ -21,6 +34,7 @@ export const initialState: AppState = {
   settingsRev: 1,
   activeItemId: null,
   lastAddedIds: [],
+  deliveryScenarioId: DEFAULT_DELIVERY_SCENARIO_ID,
 };
 
 function updateItem(
@@ -46,6 +60,12 @@ export default function appReducer(
     }
 
     case 'START_ITEM': {
+      const snapshot: JobCaptureSnapshot = {
+        runId: state.runId,
+        settingsRev: state.settingsRev,
+        deliveryScenarioId: state.deliveryScenarioId,
+        startedAt: Date.now(),
+      };
       return {
         ...state,
         activeItemId: action.id,
@@ -54,19 +74,23 @@ export default function appReducer(
           status: 'processing',
           isNew: false,
           error: undefined,
+          warningReason: undefined,
+          captured: snapshot,
         })),
       };
     }
 
     case 'FINISH_ITEM': {
+      const status = action.warningReason ? 'warning' : 'done';
       return {
         ...state,
         activeItemId: null,
         items: updateItem(state.items, action.id, (it) => ({
           ...it,
-          status: 'done',
+          status,
           out: action.out,
           error: undefined,
+          warningReason: action.warningReason,
         })),
       };
     }
@@ -91,6 +115,7 @@ export default function appReducer(
           status: 'queued',
           out: undefined,
           error: undefined,
+          warningReason: undefined,
           isNew: false,
         })),
       };
@@ -115,6 +140,7 @@ export default function appReducer(
           isNew: false,
           out: undefined,
           error: undefined,
+          warningReason: undefined,
         })),
       };
     }
@@ -132,6 +158,7 @@ export default function appReducer(
           status: 'queued',
           out: undefined,
           error: undefined,
+          warningReason: undefined,
           isNew: false,
         })),
       };
@@ -164,6 +191,14 @@ export default function appReducer(
         runId: state.runId + 1,
         settings: state.settings,
         settingsRev: state.settingsRev,
+        deliveryScenarioId: state.deliveryScenarioId,
+      };
+    }
+
+    case 'SET_DELIVERY_SCENARIO': {
+      return {
+        ...state,
+        deliveryScenarioId: action.scenarioId,
       };
     }
 

@@ -18,6 +18,8 @@ function statusLabel(status: GridItem['status']): string {
       return 'Processing';
     case 'done':
       return 'Done';
+    case 'warning':
+      return 'Warning';
     case 'error':
       return 'Error';
     case 'canceled':
@@ -35,6 +37,8 @@ function statusBadgeClass(status: GridItem['status']): string {
       return styles.badgeProcessing;
     case 'done':
       return styles.badgeDone;
+    case 'warning':
+      return styles.badgeWarning;
     case 'error':
       return styles.badgeError;
     default:
@@ -92,6 +96,11 @@ export default function ItemsGrid({
             {it.status === 'error' && it.error && (
               <div className={styles.error} title={it.error}>
                 {it.error}
+              </div>
+            )}
+            {it.status === 'warning' && it.warningReason && (
+              <div className={styles.warning} title={it.warningReason}>
+                {it.warningReason}
               </div>
             )}
 

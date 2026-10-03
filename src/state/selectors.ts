@@ -13,19 +13,20 @@ export type GridItem = {
   status: JobStatus;
   isNew: boolean;
   error?: string;
+  warningReason?: string;
   actions: GridActionState;
 };
 
 export function selectGridItems(items: JobItem[]): GridItem[] {
   return items.map((it) => {
     const previewUrl =
-      it.status === 'done' && it.out?.previewUrl
+      (it.status === 'done' || it.status === 'warning') && it.out?.previewUrl
         ? it.out.previewUrl
         : it.src.previewUrl;
 
     const actions: GridActionState = {
-      canRetry: it.status === 'error',
-      canDownload: it.status === 'done',
+      canRetry: it.status === 'error' || it.status === 'warning',
+      canDownload: it.status === 'done' || it.status === 'warning',
       canCancel: it.status === 'queued' || it.status === 'processing',
     };
 
@@ -36,6 +37,7 @@ export function selectGridItems(items: JobItem[]): GridItem[] {
       status: it.status,
       isNew: it.isNew,
       error: it.error,
+      warningReason: it.warningReason,
       actions,
     };
   });

@@ -62,6 +62,10 @@
   border-color: #86efac;
 }
 
+.badge-warning {
+  border-color: #fcd34d;
+}
+
 .badge-error {
   border-color: #fca5a5;
 }
@@ -75,6 +79,15 @@
   overflow: hidden;
   font-size: 12px;
   color: #b91c1c;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warning {
+  margin-top: 6px;
+  overflow: hidden;
+  font-size: 12px;
+  color: #92400e;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
