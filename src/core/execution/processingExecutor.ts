@@ -8,6 +8,10 @@ import type {
   WorkerRequestMessage,
   WorkerResponseMessage,
 } from './processingMessages';
+import {
+  ProcessingPipelineError,
+  ProcessingAbortedError,
+} from '../pipeline/processingErrors';
 
 type ExecutorMode = 'main-thread' | 'worker';
 
@@ -78,7 +82,11 @@ class WorkerProcessingExecutor implements ProcessingExecutor {
       if (data.type === 'success') {
         pending.resolve(data.result);
       } else {
-        pending.reject(new Error(data.reason));
+        const workerError = new ProcessingPipelineError(
+          data.errorCode ?? 'unknown',
+          data.reason,
+        );
+        pending.reject(workerError);
       }
       this.pending.delete(data.jobId);
     });
@@ -111,7 +119,7 @@ class WorkerProcessingExecutor implements ProcessingExecutor {
 
   terminate(): void {
     this.pending.forEach(({ reject }) =>
-      reject(new Error('Worker executor terminated')),
+      reject(new ProcessingAbortedError('Worker executor terminated')),
     );
     this.pending.clear();
     this.worker.terminate();

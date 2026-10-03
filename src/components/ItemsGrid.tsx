@@ -96,8 +96,8 @@ export default function ItemsGrid({
 
           <div className={styles.meta}>
             {it.status === 'error' && it.error && (
-              <div className={styles.error} title={it.error}>
-                {it.error}
+              <div className={styles.error} title={it.error.message}>
+                {it.error.message}
               </div>
             )}
             {it.status === 'warning' && it.warningReason && (

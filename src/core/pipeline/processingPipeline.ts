@@ -9,6 +9,7 @@ import {
   canUseOffscreenConversion,
   convertWithOffscreenCanvas,
 } from '../conversion/offscreenCanvasConverter';
+import { asProcessingPipelineError } from './processingErrors';
 
 export type ProcessingPipelineParams = {
   sourceFile: File;
@@ -34,17 +35,42 @@ async function convertSourceToJpeg(
   recorder: ReturnType<typeof createPerfRecorder> | null,
 ): Promise<File> {
   if (canUseOffscreenConversion()) {
-    return runPerfSpan(recorder, 'convertWithOffscreenCanvas', () =>
-      convertWithOffscreenCanvas(file, quality),
+    try {
+      return await runPerfSpan(recorder, 'convertWithOffscreenCanvas', () =>
+        convertWithOffscreenCanvas(file, quality),
+      );
+    } catch (error) {
+      throw asProcessingPipelineError(
+        error,
+        'convert_failed',
+        'Failed to convert image via OffscreenCanvas',
+      );
+    }
+  }
+  let imageFile: Awaited<ReturnType<typeof ImageFileService.load>>;
+  try {
+    imageFile = await runPerfSpan(recorder, 'loadSourceImage', () =>
+      ImageFileService.load(file),
+    );
+  } catch (error) {
+    throw asProcessingPipelineError(
+      error,
+      'load_source_failed',
+      'Failed to load image file',
     );
   }
-  const imageFile = await runPerfSpan(recorder, 'loadSourceImage', () =>
-    ImageFileService.load(file),
-  );
-  const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
-    ImageFileService.convertToJpeg(imageFile, quality),
-  );
-  return converted.asFile();
+  try {
+    const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
+      ImageFileService.convertToJpeg(imageFile, quality),
+    );
+    return converted.asFile();
+  } catch (error) {
+    throw asProcessingPipelineError(
+      error,
+      'convert_failed',
+      'Failed to convert image to JPEG',
+    );
+  }
 }
 
 export async function runProcessingPipeline(
@@ -80,7 +106,13 @@ export async function runProcessingPipeline(
         deriveTimestamp({
           file: sourceFile,
         }),
-    );
+    ).catch((error) => {
+      throw asProcessingPipelineError(
+        error,
+        'metadata_derive_failed',
+        'Failed to derive metadata from source file',
+      );
+    });
 
     const applyResult = await runPerfSpan(recorder, 'applyTimestamp', () =>
       applyTimestamp({
@@ -89,7 +121,13 @@ export async function runProcessingPipeline(
         deliveryId,
         metadataPolicyMode,
       }),
-    );
+    ).catch((error) => {
+      throw asProcessingPipelineError(
+        error,
+        'metadata_apply_failed',
+        'Failed to apply metadata to converted file',
+      );
+    });
 
     const outFile = applyResult.file;
     const sizeBefore = sourceFile.size;
