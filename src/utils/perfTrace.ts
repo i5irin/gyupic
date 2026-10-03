@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /* eslint-disable no-underscore-dangle */
-type PerfScenario = 'file-load' | 'processing-pipeline';
+type PerfScenario = 'file-load' | 'processing-pipeline' | 'processing-prep';
 
 type PerfMeta = {
   [key: string]: string | number | boolean | undefined;
