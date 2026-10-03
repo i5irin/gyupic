@@ -7,10 +7,7 @@ import SettingsPanel from './components/SettingsPanel';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
-import {
-  applyTimestamp,
-  deriveTimestamp,
-} from './core/metadata/metadataPolicy';
+import { runProcessingPipeline } from './core/pipeline/processingPipeline';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -230,40 +227,25 @@ export default function App() {
 
     const run = async () => {
       try {
-        const derivedTimestamp = await deriveTimestamp({
-          file: next.src.file,
-        });
-
-        const converted = await ImageFileService.convertToJpeg(
-          next.src.imageFile,
-          startedQuality,
-        );
-
-        // If user canceled while converting, discard result and just release the queue.
-        if (isCanceledNow(next.id)) {
-          dispatch({ type: 'END_ITEM', id: next.id });
-          return;
-        }
-
-        const applyResult = await applyTimestamp({
-          file: converted.asFile(),
-          derived: derivedTimestamp,
+        const pipelineResult = await runProcessingPipeline({
+          sourceFile: next.src.file,
+          sourceImage: next.src.imageFile,
+          jpegQuality: startedQuality,
           scenarioId: startedScenarioId,
         });
-
-        const outFile = applyResult.file;
+        const {
+          file: outFile,
+          sizeBefore,
+          sizeAfter,
+          reductionRatio,
+          metadata,
+          warningReason,
+        } = pipelineResult;
 
         if (isCanceledNow(next.id)) {
           dispatch({ type: 'END_ITEM', id: next.id });
           return;
         }
-
-        const sizeBefore = next.src.file.size;
-        const sizeAfter = outFile.size;
-        const reductionRatio =
-          sizeBefore > 0
-            ? Math.max(0, (sizeBefore - sizeAfter) / sizeBefore)
-            : 0;
 
         // Generation guard: only commit if the run/settings generation is still current.
         const now1 = stateRef.current;
@@ -317,14 +299,9 @@ export default function App() {
             sizeBefore,
             sizeAfter,
             reductionRatio,
-            metadata: {
-              scenarioId: startedScenarioId,
-              derived: derivedTimestamp,
-              status: applyResult.status,
-              reason: applyResult.warningReason,
-            },
+            metadata,
           },
-          warningReason: applyResult.warningReason,
+          warningReason,
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unknown error';
