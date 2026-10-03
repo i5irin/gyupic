@@ -1,0 +1,143 @@
+import type {
+  FilenameStrategy,
+  FormatFlagOptions,
+  MetadataOptions,
+  MetadataSpecVersion,
+  OrderingRequirement,
+  OutputFormat,
+  PresetId,
+  TimestampWriteMode,
+} from '../domain/presets';
+
+export type JobStatus =
+  | 'queued'
+  | 'processing'
+  | 'done'
+  | 'warning'
+  | 'error'
+  | 'canceled';
+
+export type JobSource = {
+  file: File;
+  previewUrl: string;
+};
+
+export type ExifTimestampField =
+  | 'DateTimeOriginal'
+  | 'DateTimeDigitized'
+  | 'DateTime';
+
+export type DerivedTimestamp =
+  | {
+      kind: 'exif';
+      field: ExifTimestampField;
+      value: string;
+      offset?: string;
+    }
+  | { kind: 'file'; value: number; offset?: string }
+  | { kind: 'unavailable' };
+
+export type MetadataWarningCode =
+  | 'META_MISSING_INPUT'
+  | 'META_UNSUPPORTED_OUTPUT'
+  | 'META_EXTRACT_FAILED'
+  | 'META_APPLY_FAILED'
+  | 'META_XMP_PRESERVE_FAILED'
+  | 'META_MTIME_UNAVAILABLE'
+  | 'ORDERING_REQUIREMENT_NOT_MET';
+
+export type MetadataWarning = {
+  code: MetadataWarningCode;
+  field: string;
+  reason: string;
+  messageJa: string;
+  messageEn: string;
+};
+
+export type CaptureTimeBadge = 'original' | 'from-mtime' | 'not-applied';
+
+export type MetadataGuaranteeStatus =
+  | 'guaranteed'
+  | 'best-effort'
+  | 'warning'
+  | 'skipped';
+
+export type JobMetadataInfo = {
+  presetId: PresetId;
+  ordering: OrderingRequirement;
+  derived: DerivedTimestamp;
+  status: MetadataGuaranteeStatus;
+  reason?: string;
+  warnings?: MetadataWarning[];
+  captureTimeBadge?: CaptureTimeBadge;
+  metadataSpecVersion: MetadataSpecVersion;
+};
+
+export type JobErrorCode =
+  | 'load_source_failed'
+  | 'convert_failed'
+  | 'metadata_derive_failed'
+  | 'metadata_apply_failed'
+  | 'worker_unavailable'
+  | 'aborted'
+  | 'unknown';
+
+export type JobErrorInfo = {
+  code: JobErrorCode;
+  message: string;
+};
+
+export type JobOutput = {
+  file: File;
+  previewUrl: string;
+  /** bytes */
+  sizeBefore: number;
+  /** bytes */
+  sizeAfter: number;
+  /** 0.0 - 1.0 (e.g. 0.42 means 42% smaller) */
+  reductionRatio: number;
+  metadata?: JobMetadataInfo;
+};
+
+export type JobItem = {
+  id: string;
+  createdAt: number;
+  isNew: boolean;
+  status: JobStatus;
+  src: JobSource;
+  out?: JobOutput;
+  error?: JobErrorInfo;
+  warningReason?: string;
+  captured?: JobCaptureSnapshot;
+};
+
+export type ConvertSettings = {
+  presetId: PresetId;
+  jpegQuality: number;
+  outputFormat: OutputFormat;
+  filenameStrategy: FilenameStrategy;
+  timestampWriteMode: TimestampWriteMode;
+  metadataSpecVersion: MetadataSpecVersion;
+  metadataOptions: MetadataOptions;
+  formatFlags: FormatFlagOptions;
+  rewriteExif: boolean;
+  injectFromEditedTime: boolean;
+};
+
+export type AppState = {
+  items: JobItem[];
+  runId: number;
+  settings: ConvertSettings;
+  settingsRev: number;
+  activeItemIds: string[];
+  lastAddedIds: string[];
+  presetId: PresetId;
+};
+
+export type JobCaptureSnapshot = {
+  runId: number;
+  settingsRev: number;
+  presetId: PresetId;
+  ordering: OrderingRequirement;
+  startedAt: number;
+};
