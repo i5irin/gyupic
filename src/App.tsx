@@ -7,6 +7,10 @@ import SettingsPanel from './components/SettingsPanel';
 import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
+import {
+  applyTimestamp,
+  deriveTimestamp,
+} from './core/metadata/metadataPolicy';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -219,12 +223,17 @@ export default function App() {
     const startedRunId = latest.runId;
     const startedSettingsRev = latest.settingsRev;
     const startedQuality = latest.settings.jpegQuality;
+    const startedScenarioId = latest.deliveryScenarioId;
 
     inFlightRef.current = next.id;
     dispatch({ type: 'START_ITEM', id: next.id });
 
     const run = async () => {
       try {
+        const derivedTimestamp = await deriveTimestamp({
+          file: next.src.file,
+        });
+
         const converted = await ImageFileService.convertToJpeg(
           next.src.imageFile,
           startedQuality,
@@ -236,7 +245,19 @@ export default function App() {
           return;
         }
 
-        const outFile = converted.asFile();
+        const applyResult = await applyTimestamp({
+          file: converted.asFile(),
+          derived: derivedTimestamp,
+          scenarioId: startedScenarioId,
+        });
+
+        const outFile = applyResult.file;
+
+        if (isCanceledNow(next.id)) {
+          dispatch({ type: 'END_ITEM', id: next.id });
+          return;
+        }
+
         const sizeBefore = next.src.file.size;
         const sizeAfter = outFile.size;
         const reductionRatio =
@@ -296,7 +317,14 @@ export default function App() {
             sizeBefore,
             sizeAfter,
             reductionRatio,
+            metadata: {
+              scenarioId: startedScenarioId,
+              derived: derivedTimestamp,
+              status: applyResult.status,
+              reason: applyResult.warningReason,
+            },
           },
+          warningReason: applyResult.warningReason,
         });
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Unknown error';
