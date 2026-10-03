@@ -7,8 +7,10 @@
     "dev": "vite --port 8080",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "lint": "eslint --ext .js,.ts,.cjs --ignore-pattern 'dist/**/*' .",
-    "lint:fix": "npm run lint -- --fix",
+    "eslint": "eslint --ext .js,.ts,.cjs --ignore-pattern 'dist/**/*' .",
+    "eslint:fix": "npm run eslint -- --fix",
+    "stylelint": "stylelint 'src/**/*.css'",
+    "stylelint:fix": "npm run stylelint -- --fix",
     "prettier": "prettier --check .",
     "prettier:fix": "prettier --write ."
   },
@@ -21,6 +23,9 @@
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-import": "^2.29.0",
     "prettier": "^3.0.3",
+    "stylelint": "^15.11.0",
+    "stylelint-config-recess-order": "^4.3.0",
+    "stylelint-config-standard": "^34.0.0",
     "typescript": "^5.0.2",
     "vite": "^4.4.5"
   }
