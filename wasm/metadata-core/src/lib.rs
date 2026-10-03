@@ -1,18 +1,32 @@
 use js_sys::{Date, Uint8Array};
+use once_cell::sync::Lazy;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_wasm_bindgen::{from_value, to_value};
+use sha1::{Digest, Sha1};
+use unicode_normalization::UnicodeNormalization;
 use wasm_bindgen::prelude::*;
 
 use crc32fast::Hasher;
 use exif::{Error as ExifError, Exif, Reader, Tag, Value};
-use std::io::Cursor;
-use time::{macros::format_description, PrimitiveDateTime, UtcOffset};
+use std::{fmt::Write, io::Cursor};
+use time::{macros::format_description, OffsetDateTime, PrimitiveDateTime, UtcOffset};
 
 const METADATA_SPEC_VERSION: &str = "1.0";
 const EXIF_DATETIME_FORMAT: &[time::format_description::FormatItem<'static>] =
     format_description!("[year]:[month]:[day] [hour]:[minute]:[second]");
+const FILENAME_TIMESTAMP_FORMAT: &[time::format_description::FormatItem<'static>] =
+    format_description!("[year][month][day]_[hour][minute][second]");
 const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 const EXIF_HEADER: [u8; 6] = *b"Exif\0\0";
+const MAX_SANITIZED_FILENAME_BASE: usize = 120;
+const MAX_TIMESTAMPED_FILENAME_BASE: usize = 40;
+const DEFAULT_FILENAME_BASE: &str = "image";
+
+static NON_FILENAME_CHARS: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[^\p{L}\p{N}\-_.]+").expect("invalid filename regex"));
+static MULTIPLE_DASHES: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"-{2,}").expect("invalid dash regex"));
 
 #[cfg(feature = "console_error_panic_hook")]
 #[wasm_bindgen(start)]
@@ -65,6 +79,8 @@ pub struct FilenamePlanResponse {
     pub target_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fallback_strategy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_ms: Option<f64>,
     #[serde(default)]
     pub warnings: Vec<MetadataWarning>,
 }
@@ -118,7 +134,7 @@ impl Default for DeriveMetadataContext {
 #[serde(rename_all = "camelCase")]
 struct MetadataApplyContext {
     #[serde(default = "bool_true")]
-    capture_time_enabled: bool,
+   capture_time_enabled: bool,
     #[serde(default)]
     capture_time: Option<CaptureTimeInfo>,
     ordering: OrderingRequirement,
@@ -136,6 +152,19 @@ struct MetadataApplyContext {
     preserve_xmp: bool,
     #[serde(default)]
     preserve_xmp_management: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FilenamePlanContext {
+    #[serde(default)]
+    source_name: String,
+    filename_strategy: FilenameStrategy,
+    #[serde(default)]
+    timestamp_ms: Option<f64>,
+    #[serde(default)]
+    sanitized_base_name: Option<String>,
+    output_format: OutputFormat,
 }
 
 #[derive(Deserialize)]
@@ -172,6 +201,15 @@ impl Default for TimestampWriteMode {
     }
 }
 
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "kebab-case")]
+enum FilenameStrategy {
+    #[serde(rename = "keep-original")]
+    KeepOriginal,
+    #[serde(rename = "timestamped")]
+    Timestamped,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum OutputFormat {
@@ -188,6 +226,15 @@ impl OutputFormat {
             OutputFormat::Png => "png",
             OutputFormat::Webp => "webp",
             OutputFormat::Gif => "gif",
+        }
+    }
+
+    fn extension(&self) -> &'static str {
+        match self {
+            OutputFormat::Jpeg => ".jpg",
+            OutputFormat::Png => ".png",
+            OutputFormat::Webp => ".webp",
+            OutputFormat::Gif => ".gif",
         }
     }
 }
@@ -355,15 +402,145 @@ pub fn apply_metadata(encoded_bytes: Uint8Array, settings: JsValue) -> Result<Js
 
 #[wasm_bindgen]
 pub fn plan_filename(context: JsValue) -> Result<JsValue, JsValue> {
-    let _ = context;
-    let response = FilenamePlanResponse {
+    let ctx: FilenamePlanContext =
+        from_value(context).map_err(|err| JsValue::from_str(&err.to_string()))?;
+    let response = match ctx.filename_strategy {
+        FilenameStrategy::KeepOriginal => FilenamePlanResponse {
+            metadata_spec_version: METADATA_SPEC_VERSION.to_string(),
+            applied: false,
+            target_name: None,
+            fallback_strategy: Some("keep-original".to_string()),
+            timestamp_ms: None,
+            warnings: Vec::new(),
+        },
+        FilenameStrategy::Timestamped => plan_timestamped_filename(ctx),
+    };
+    to_value(&response).map_err(|err| err.into())
+}
+
+fn plan_timestamped_filename(context: FilenamePlanContext) -> FilenamePlanResponse {
+    let mut warnings = Vec::new();
+    let sanitized_candidate = context
+        .sanitized_base_name
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(sanitize_filename_base)
+        .unwrap_or_else(|| sanitize_filename_base(&context.source_name));
+    let sanitized_base = if sanitized_candidate.is_empty() {
+        DEFAULT_FILENAME_BASE.to_string()
+    } else {
+        sanitized_candidate
+    };
+    let normalized_timestamp_ms =
+        match normalize_timestamp_ms(context.timestamp_ms) {
+            Some(value) => value,
+            None => {
+                return fallback_filename_plan(
+                    "timestamp unavailable for timestamped filename strategy",
+                    warnings,
+                )
+            }
+        };
+    let timestamp_string = match format_timestamp_for_filename(normalized_timestamp_ms) {
+        Some(value) => value,
+        None => {
+            return fallback_filename_plan(
+                "timestamp unavailable for timestamped filename strategy",
+                warnings,
+            )
+        }
+    };
+
+    let base_component = build_timestamped_base(&sanitized_base);
+    let target_name = format!(
+        "{timestamp_string}_{}{}",
+        base_component,
+        context.output_format.extension()
+    );
+
+    FilenamePlanResponse {
+        metadata_spec_version: METADATA_SPEC_VERSION.to_string(),
+        applied: true,
+        target_name: Some(target_name),
+        fallback_strategy: None,
+        timestamp_ms: Some(normalized_timestamp_ms),
+        warnings,
+    }
+}
+
+fn fallback_filename_plan(
+    reason: &str,
+    mut warnings: Vec<MetadataWarning>,
+) -> FilenamePlanResponse {
+    warnings.push(warning_filename_ordering_not_met(reason));
+    FilenamePlanResponse {
         metadata_spec_version: METADATA_SPEC_VERSION.to_string(),
         applied: false,
         target_name: None,
         fallback_strategy: Some("keep-original".to_string()),
-        warnings: vec![placeholder_warning("plan_filename")],
-    };
-    to_value(&response).map_err(|err| err.into())
+        timestamp_ms: None,
+        warnings,
+    }
+}
+
+fn sanitize_filename_base(raw: &str) -> String {
+    let normalized: String = raw.nfkc().collect();
+    if normalized.is_empty() {
+        return String::new();
+    }
+    let replaced = NON_FILENAME_CHARS.replace_all(&normalized, "-");
+    let collapsed = MULTIPLE_DASHES.replace_all(replaced.as_ref(), "-");
+    let trimmed = collapsed.trim_matches('-').to_string();
+    trimmed
+        .chars()
+        .take(MAX_SANITIZED_FILENAME_BASE)
+        .collect::<String>()
+}
+
+fn build_timestamped_base(base: &str) -> String {
+    if base.chars().count() <= MAX_TIMESTAMPED_FILENAME_BASE {
+        return base.to_string();
+    }
+    let truncated = truncate_chars(base, MAX_TIMESTAMPED_FILENAME_BASE);
+    let hash = hash8(base);
+    format!("{truncated}-{hash}")
+}
+
+fn truncate_chars(value: &str, limit: usize) -> String {
+    value.chars().take(limit).collect()
+}
+
+fn hash8(value: &str) -> String {
+    let mut hasher = Sha1::new();
+    hasher.update(value.as_bytes());
+    let digest = hasher.finalize();
+    let mut hash = String::with_capacity(8);
+    for byte in digest[..4].iter() {
+        write!(&mut hash, "{byte:02x}").expect("writing to string cannot fail");
+    }
+    hash
+}
+
+fn normalize_timestamp_ms(raw: Option<f64>) -> Option<f64> {
+    let value = raw?;
+    if !value.is_finite() {
+        return None;
+    }
+    let floored = (value / 1000.0).floor() * 1000.0;
+    if floored <= 0.0 {
+        None
+    } else {
+        Some(floored)
+    }
+}
+
+fn format_timestamp_for_filename(timestamp_ms: f64) -> Option<String> {
+    if !timestamp_ms.is_finite() {
+        return None;
+    }
+    let seconds = (timestamp_ms / 1000.0) as i64;
+    let datetime = OffsetDateTime::from_unix_timestamp(seconds).ok()?;
+    datetime.format(&FILENAME_TIMESTAMP_FORMAT).ok()
 }
 
 fn derive_capture_time_from_exif(
@@ -1247,6 +1424,15 @@ fn warning_ordering_not_met(reason: &str) -> MetadataWarning {
         "capture-time",
         Some(reason.to_string()),
         "Failed to satisfy the ordering requirement for the selected preset.",
+    )
+}
+
+fn warning_filename_ordering_not_met(reason: &str) -> MetadataWarning {
+    warning(
+        "ORDERING_REQUIREMENT_NOT_MET",
+        "filename",
+        Some(reason.to_string()),
+        "Failed to generate timestamped filename; original name was kept.",
     )
 }
 
