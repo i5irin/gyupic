@@ -8,7 +8,7 @@
     "build": "npm run type:css && tsc && vite build",
     "preview": "vite preview",
     "type:css": "tcm -p '**/*.module.css' src -c",
-    "wasm:build": "wasm-pack build wasm/metadata-core --target web --out-dir src/core/metadata/wasm-pkg --out-name metadata_core",
+    "wasm:build": "wasm-pack build wasm/metadata-core --target web --out-dir ../../src/core/metadata/wasm-pkg --out-name metadata_core",
     "eslint": "eslint --ext .js,.jsx,.ts,.tsx,.cjs --ignore-pattern 'dist/**/*' .",
     "eslint:fix": "npm run eslint -- --fix",
     "stylelint": "stylelint 'src/**/*.css'",

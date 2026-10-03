@@ -11,6 +11,7 @@ export default defineConfig({
   resolve: {
     alias: {
       views: path.join(__dirname, 'src/views'),
+      metadata_core: path.resolve(__dirname, 'src/core/metadata/wasm-pkg'),
     },
   },
   plugins: [react()],
