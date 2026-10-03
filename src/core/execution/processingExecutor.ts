@@ -4,6 +4,10 @@ import type {
   ProcessingPipelineParams,
   ProcessingPipelineResult,
 } from '../pipeline/processingPipeline';
+import type {
+  WorkerRequestMessage,
+  WorkerResponseMessage,
+} from './processingMessages';
 
 type ExecutorMode = 'main-thread' | 'worker';
 
@@ -13,25 +17,7 @@ export interface ProcessingExecutor {
   terminate(): void;
 }
 
-type WorkerRequestMessage = {
-  type: 'process';
-  jobId: string;
-  payload: ProcessingPipelineParams;
-};
-
-type WorkerResponseMessage =
-  | {
-      type: 'success';
-      jobId: string;
-      result: ProcessingPipelineResult;
-    }
-  | {
-      type: 'error';
-      jobId: string;
-      reason: string;
-    };
-
-const FORCE_DISABLE_WORKER = true;
+const FORCE_DISABLE_WORKER = false;
 // Worker有効化/無効化はこの定数を手動変更して切り替える
 // Toggle this constant manually when enabling/disabling the worker path
 
