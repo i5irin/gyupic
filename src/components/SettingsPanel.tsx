@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import styles from './SettingsPanel.module.css';
 
+type PickupOption = {
+  id: string;
+  title: string;
+  description: string;
+};
+
 type DeliveryOption = {
   id: string;
   title: string;
@@ -10,6 +16,9 @@ type DeliveryOption = {
 
 type Props = {
   currentJpegQuality: number;
+  pickupId: string;
+  pickupOptions: PickupOption[];
+  onChangePickup: (id: string) => void;
   deliveryId: string;
   deliveryOptions: DeliveryOption[];
   onChangeDelivery: (id: string) => void;
@@ -18,6 +27,9 @@ type Props = {
 
 export default function SettingsPanel({
   currentJpegQuality,
+  pickupId,
+  pickupOptions,
+  onChangePickup,
   deliveryId,
   deliveryOptions,
   onChangeDelivery,
@@ -45,6 +57,11 @@ export default function SettingsPanel({
   const isDirty = useMemo(
     () => normalize(draftQuality) !== normalize(currentJpegQuality),
     [draftQuality, currentJpegQuality],
+  );
+
+  const selectedPickup = useMemo(
+    () => pickupOptions.find((option) => option.id === pickupId),
+    [pickupId, pickupOptions],
   );
 
   const selectedDelivery = useMemo(
@@ -83,6 +100,36 @@ export default function SettingsPanel({
       </div>
 
       <div className={styles.settingsPanelBody}>
+        {pickupOptions.length > 0 && (
+          <div className={styles.settingsPanelRow}>
+            <label className={styles.settingsPanelLabel} htmlFor="pickupPath">
+              Pickup Source
+              <select
+                id="pickupPath"
+                className={styles.settingsPanelSelect}
+                value={pickupId}
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  if (next !== pickupId) {
+                    onChangePickup(next);
+                  }
+                }}
+              >
+                {pickupOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {selectedPickup && (
+              <div className={styles.settingsPanelScenarioDescription}>
+                <span>{selectedPickup.description}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         {deliveryOptions.length > 0 && (
           <div className={styles.settingsPanelRow}>
             <label
