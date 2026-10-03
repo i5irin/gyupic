@@ -1,3 +1,4 @@
+import exifr from 'exifr';
 import piexif from 'piexifjs';
 import type { DeliveryScenarioId } from '../../domain/deliveryScenarios';
 import {
@@ -20,6 +21,12 @@ const EXIF_TAGS = {
   OffsetTimeDigitized: 0x9012, // 36882
 };
 
+const EXIF_TIMESTAMP_FIELDS = [
+  'DateTimeOriginal',
+  'DateTimeDigitized',
+  'DateTime',
+] as const;
+
 type DeriveOptions = {
   file: File;
 };
@@ -34,6 +41,13 @@ export type ApplyResult = {
   file: File;
   status: MetadataGuaranteeStatus;
   warningReason?: string;
+};
+
+type ExifTimestampField = (typeof EXIF_TIMESTAMP_FIELDS)[number];
+
+type ReadExifResult = {
+  field: ExifTimestampField;
+  value: string;
 };
 
 function isExifCapable(file: File): boolean {
@@ -137,38 +151,61 @@ function evaluateStatus(
   return { status: 'guaranteed' };
 }
 
+function normalizeExifValue(raw: unknown): string | null {
+  if (!raw) {
+    return null;
+  }
+  if (typeof raw === 'string') {
+    return raw;
+  }
+  if (raw instanceof Date) {
+    return formatExifDate(raw);
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return formatExifDate(new Date(raw));
+  }
+  return null;
+}
+
+async function readExifTimestampFromFile(
+  file: File,
+): Promise<ReadExifResult | null> {
+  try {
+    const metadata = await exifr.parse(file, {
+      pick: [...EXIF_TIMESTAMP_FIELDS],
+    });
+    if (!metadata) {
+      return null;
+    }
+
+    const metadataRecord = metadata as Record<string, unknown>;
+    const found = EXIF_TIMESTAMP_FIELDS.map((field) => {
+      const raw = metadataRecord[field];
+      if (!raw) {
+        return null;
+      }
+      const normalized = normalizeExifValue(raw);
+      return normalized ? { field, value: normalized } : null;
+    }).find((entry): entry is ReadExifResult => entry !== null);
+    if (found) {
+      return found;
+    }
+  } catch {
+    // noop: fall through to fallback
+  }
+  return null;
+}
+
 export async function deriveTimestamp({
   file,
 }: DeriveOptions): Promise<DerivedTimestamp> {
-  if (isExifCapable(file)) {
-    try {
-      const dataUrl = await blobToDataURL(file);
-      const exifData = piexif.load(dataUrl);
-      const candidates = [
-        {
-          field: 'DateTimeOriginal',
-          value: exifData.Exif?.[EXIF_TAGS.DateTimeOriginal],
-        },
-        {
-          field: 'DateTimeDigitized',
-          value: exifData.Exif?.[EXIF_TAGS.DateTimeDigitized],
-        },
-        { field: 'DateTime', value: exifData['0th']?.[EXIF_TAGS.DateTime] },
-      ] as const;
-      const found = candidates.find(
-        (
-          candidate,
-        ): candidate is {
-          field: 'DateTimeOriginal' | 'DateTimeDigitized' | 'DateTime';
-          value: string;
-        } => typeof candidate.value === 'string' && candidate.value.length > 0,
-      );
-      if (found) {
-        return { kind: 'exif', field: found.field, value: found.value };
-      }
-    } catch {
-      // noop: fall back to file-based metadata.
-    }
+  const exifTimestamp = await readExifTimestampFromFile(file);
+  if (exifTimestamp) {
+    return {
+      kind: 'exif',
+      field: exifTimestamp.field,
+      value: exifTimestamp.value,
+    };
   }
 
   if (Number.isFinite(file.lastModified) && file.lastModified > 0) {
