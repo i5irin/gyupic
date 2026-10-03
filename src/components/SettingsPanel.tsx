@@ -13,6 +13,7 @@ type Props = {
   scenarioId: string;
   scenarioOptions: ScenarioOption[];
   onChangeScenario: (id: string) => void;
+  scenarioHint?: string;
   onApply: (jpegQuality: number) => void;
 };
 
@@ -21,6 +22,7 @@ export default function SettingsPanel({
   scenarioId,
   scenarioOptions,
   onChangeScenario,
+  scenarioHint,
   onApply,
 }: Props) {
   const MIN = 0.1;
@@ -90,28 +92,33 @@ export default function SettingsPanel({
               htmlFor="deliveryScenario"
             >
               Delivery Scenario
-              <select
-                id="deliveryScenario"
-                className={styles.settingsPanelSelect}
-                value={scenarioId}
-                onChange={(e) => {
-                  const next = e.currentTarget.value;
-                  if (next !== scenarioId) {
-                    onChangeScenario(next);
-                  }
-                }}
-              >
-                {scenarioOptions.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.title}
-                  </option>
-                ))}
-              </select>
             </label>
+            <select
+              id="deliveryScenario"
+              className={styles.settingsPanelSelect}
+              value={scenarioId}
+              onChange={(e) => {
+                const next = e.currentTarget.value;
+                if (next !== scenarioId) {
+                  onChangeScenario(next);
+                }
+              }}
+            >
+              {scenarioOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.title}
+                </option>
+              ))}
+            </select>
 
             {selectedScenario && (
               <div className={styles.settingsPanelScenarioDescription}>
                 <span>{selectedScenario.description}</span>
+                {scenarioHint && (
+                  <span className={styles.settingsPanelScenarioHint}>
+                    {scenarioHint}
+                  </span>
+                )}
                 <span
                   className={`${styles.settingsPanelBadge} ${scenarioBadgeClass(
                     selectedScenario.guarantee,

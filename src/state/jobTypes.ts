@@ -32,6 +32,7 @@ export type DerivedTimestamp =
 
 export type MetadataGuaranteeStatus =
   | 'guaranteed'
+  | 'best-effort'
   | 'warning'
   | 'skipped';
 
