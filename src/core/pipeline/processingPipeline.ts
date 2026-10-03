@@ -5,6 +5,7 @@ import type { PickupId } from '../../domain/pickupCatalog';
 import type { MetadataPolicyMode, PresetId } from '../../domain/presets';
 import type { JobMetadataInfo } from '../../state/jobTypes';
 import { applyTimestamp, deriveTimestamp } from '../metadata/metadataPolicy';
+import { createPerfRecorder, runPerfSpan } from '../../utils/perfTrace';
 
 export type ProcessingPipelineParams = {
   sourceFile: File;
@@ -37,42 +38,66 @@ export async function runProcessingPipeline(
     presetId,
     metadataPolicyMode,
   } = params;
-  const derivedTimestamp = await deriveTimestamp({
-    file: sourceFile,
-  });
-
-  const converted = await ImageFileService.convertToJpeg(
-    sourceImage,
-    jpegQuality,
-  );
-
-  const applyResult = await applyTimestamp({
-    file: converted.asFile(),
-    derived: derivedTimestamp,
+  const recorder = createPerfRecorder({
+    scenario: 'processing-pipeline',
+    pickupId,
     deliveryId,
-    metadataPolicyMode,
+    presetId,
   });
 
-  const outFile = applyResult.file;
-  const sizeBefore = sourceFile.size;
-  const sizeAfter = outFile.size;
-  const reductionRatio =
-    sizeBefore > 0 ? Math.max(0, (sizeBefore - sizeAfter) / sizeBefore) : 0;
+  let extraInfo: Record<string, unknown> | undefined;
+  try {
+    const derivedTimestamp = await runPerfSpan(
+      recorder,
+      'deriveTimestamp',
+      () =>
+        deriveTimestamp({
+          file: sourceFile,
+        }),
+    );
 
-  return {
-    file: outFile,
-    sizeBefore,
-    sizeAfter,
-    reductionRatio,
-    metadata: {
-      presetId,
-      pickupId,
-      deliveryId,
-      metadataPolicyMode,
-      derived: derivedTimestamp,
-      status: applyResult.status,
-      reason: applyResult.warningReason,
-    },
-    warningReason: applyResult.warningReason,
-  };
+    const converted = await runPerfSpan(recorder, 'convertToJpeg', () =>
+      ImageFileService.convertToJpeg(sourceImage, jpegQuality),
+    );
+
+    const applyResult = await runPerfSpan(recorder, 'applyTimestamp', () =>
+      applyTimestamp({
+        file: converted.asFile(),
+        derived: derivedTimestamp,
+        deliveryId,
+        metadataPolicyMode,
+      }),
+    );
+
+    const outFile = applyResult.file;
+    const sizeBefore = sourceFile.size;
+    const sizeAfter = outFile.size;
+    const reductionRatio =
+      sizeBefore > 0 ? Math.max(0, (sizeBefore - sizeAfter) / sizeBefore) : 0;
+
+    extraInfo = {
+      sizeBefore,
+      sizeAfter,
+      reductionRatio,
+    };
+
+    return {
+      file: outFile,
+      sizeBefore,
+      sizeAfter,
+      reductionRatio,
+      metadata: {
+        presetId,
+        pickupId,
+        deliveryId,
+        metadataPolicyMode,
+        derived: derivedTimestamp,
+        status: applyResult.status,
+        reason: applyResult.warningReason,
+      },
+      warningReason: applyResult.warningReason,
+    };
+  } finally {
+    recorder?.commit(extraInfo);
+  }
 }
