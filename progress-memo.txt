@@ -1,0 +1,22 @@
+# progress-memo（コミット対象外）
+
+このファイルは Phase3/Phase4 の進捗・懸念・引き継ぎ事項を共有するためのメモ。  
+チャットを切り替える／引き継ぐ際は、この内容を冒頭に貼り付ける。  
+**更新ルール**:
+- 主要な方針決定・タスク完了・課題発生の度に必ず追記する（最少1日1回以上）。
+- エントリは日付順で追加し、最新情報を上に置く。
+- 進捗・仕掛・懸念・次アクションをそれぞれ箇条書きで必ず書く。
+
+---
+
+## 2026-01-02 (午後)
+- **進捗**: 要件書（docs/requirements.ja.md）と設計書（docs/design.ja.md）をシナリオプリセット仕様へ更新。`docs/tests/preset-scenarios.ja.md` を新規テンプレに差し替え、旧 delivery シナリオを廃止。
+- **仕掛**: 実装（`src/domain/presets.ts` など）と MetadataPolicy/QueueManager の追随。高度設定UIの設計詳細。
+- **懸念**: ドキュメントは新仕様基準だが、コードは旧 pickup/delivery 依存のままなので整合性ギャップがある。引き続きメモで注意喚起する。
+- **次アクション**: コード側のPresetモデル刷新の設計タスクを洗い出し、テストケース再構築の詳細スケジュールを作成。
+
+## 2026-01-02
+- **進捗**: 新Presetモデル方針を確定（pickup/delivery/guarantee概念を廃止し、用途ベースのシナリオPresetへ移行）。`memo.txt` を更新済み。
+- **仕掛**: 要件書/設計書の刷新、Presetシナリオベースのテストテンプレ再構築。
+- **懸念**: MetadataPolicy / QueueManager が deliveryId 前提のため構造変更が大きい。テストログの再スタート時に旧シナリオとの比較データが残らない点に注意。
+- **次アクション**: (1) docs/requirements.ja.md と docs/design.ja.md を新仕様で更新、(2) `docs/tests/preset-scenarios.ja.md` の用途をPresetシナリオカタログとして整備する草案作成。
