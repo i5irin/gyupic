@@ -7,6 +7,7 @@ type Props = {
   onRetry?: (id: string) => void;
   onDownload?: (id: string) => void;
   onCancel?: (id: string) => void;
+  onShare?: (id: string) => void;
   scrollToId?: string;
 };
 
@@ -51,6 +52,7 @@ export default function ItemsGrid({
   onRetry,
   onDownload,
   onCancel,
+  onShare,
   scrollToId,
 }: Props) {
   const targetElRef = useRef<HTMLDivElement | null>(null);
@@ -107,7 +109,8 @@ export default function ItemsGrid({
             {/* Action buttons for individual images, currently just a frame (handlers passed in) */}
             {(it.actions.canRetry ||
               it.actions.canDownload ||
-              it.actions.canCancel) && (
+              it.actions.canCancel ||
+              (it.actions.canShare && Boolean(onShare))) && (
               <div className={styles.actions}>
                 {it.actions.canRetry && (
                   <button
@@ -139,6 +142,15 @@ export default function ItemsGrid({
                     Cancel
                   </button>
                 )}
+                {it.actions.canShare && onShare && (
+                  <button
+                    type="button"
+                    className={styles.actionButton}
+                    onClick={() => onShare(it.id)}
+                  >
+                    Share
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -152,5 +164,6 @@ ItemsGrid.defaultProps = {
   onRetry: undefined,
   onDownload: undefined,
   onCancel: undefined,
+  onShare: undefined,
   scrollToId: undefined,
 };
