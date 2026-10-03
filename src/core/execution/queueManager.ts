@@ -124,6 +124,7 @@ export default class QueueManager {
     const params = {
       sourceFile: item.src.file,
       jpegQuality: context.settings.jpegQuality,
+      outputFormat: context.settings.outputFormat,
       pickupId: context.pickupId,
       deliveryId: context.deliveryId,
       presetId: context.settings.presetId,

@@ -1,7 +1,11 @@
 import ImageFileService from '../../services/image-file-service';
 import type { DeliveryId } from '../../domain/deliveryCatalog';
 import type { PickupId } from '../../domain/pickupCatalog';
-import type { MetadataPolicyMode, PresetId } from '../../domain/presets';
+import type {
+  MetadataPolicyMode,
+  OutputFormat,
+  PresetId,
+} from '../../domain/presets';
 import type { JobMetadataInfo } from '../../state/jobTypes';
 import { applyTimestamp, deriveTimestamp } from '../metadata/metadataPolicy';
 import {
@@ -13,6 +17,7 @@ import { asProcessingPipelineError } from './processingErrors';
 export type ProcessingPipelineParams = {
   sourceFile: File;
   jpegQuality: number;
+  outputFormat: OutputFormat;
   pickupId: PickupId;
   deliveryId: DeliveryId;
   presetId: PresetId;
@@ -28,10 +33,14 @@ export type ProcessingPipelineResult = {
   warningReason?: string;
 };
 
-async function convertSourceToJpeg(file: File, quality: number): Promise<File> {
+async function convertSourceToFormat(
+  file: File,
+  quality: number,
+  format: OutputFormat,
+): Promise<File> {
   if (canUseOffscreenConversion()) {
     try {
-      return await convertWithOffscreenCanvas(file, quality);
+      return await convertWithOffscreenCanvas(file, { format, quality });
     } catch (error) {
       throw asProcessingPipelineError(
         error,
@@ -51,13 +60,12 @@ async function convertSourceToJpeg(file: File, quality: number): Promise<File> {
     );
   }
   try {
-    const converted = await ImageFileService.convertToJpeg(imageFile, quality);
-    return converted.asFile();
+    return await ImageFileService.convertToFormat(imageFile, format, quality);
   } catch (error) {
     throw asProcessingPipelineError(
       error,
       'convert_failed',
-      'Failed to convert image to JPEG',
+      'Failed to convert image to target format',
     );
   }
 }
@@ -68,12 +76,17 @@ export async function runProcessingPipeline(
   const {
     sourceFile,
     jpegQuality,
+    outputFormat,
     pickupId,
     deliveryId,
     presetId,
     metadataPolicyMode,
   } = params;
-  const convertedFile = await convertSourceToJpeg(sourceFile, jpegQuality);
+  const convertedFile = await convertSourceToFormat(
+    sourceFile,
+    jpegQuality,
+    outputFormat,
+  );
 
   let derivedTimestamp: Awaited<ReturnType<typeof deriveTimestamp>>;
   try {

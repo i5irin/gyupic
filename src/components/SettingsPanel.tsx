@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { OutputFormat } from '../domain/presets';
 import styles from './SettingsPanel.module.css';
 
 type DeliveryInfo = {
@@ -19,16 +20,21 @@ type PresetOption = {
 
 type Props = {
   currentJpegQuality: number;
+  currentOutputFormat: OutputFormat;
   presetId: string;
   presetOptions: PresetOption[];
   onChangePreset: (id: string) => void;
   pickupInfo?: { title: string; description: string };
   deliveryInfo?: DeliveryInfo;
-  onApply: (jpegQuality: number) => void;
+  onApply: (settings: {
+    jpegQuality: number;
+    outputFormat: OutputFormat;
+  }) => void;
 };
 
 export default function SettingsPanel({
   currentJpegQuality,
+  currentOutputFormat,
   presetId,
   presetOptions,
   onChangePreset,
@@ -50,14 +56,22 @@ export default function SettingsPanel({
   const [draftQuality, setDraftQuality] = useState(() =>
     normalize(currentJpegQuality),
   );
+  const [draftOutputFormat, setDraftOutputFormat] =
+    useState<OutputFormat>(currentOutputFormat);
 
   useEffect(() => {
     setDraftQuality(normalize(currentJpegQuality));
   }, [currentJpegQuality]);
 
+  useEffect(() => {
+    setDraftOutputFormat(currentOutputFormat);
+  }, [currentOutputFormat]);
+
   const isDirty = useMemo(
-    () => normalize(draftQuality) !== normalize(currentJpegQuality),
-    [draftQuality, currentJpegQuality],
+    () =>
+      normalize(draftQuality) !== normalize(currentJpegQuality) ||
+      draftOutputFormat !== currentOutputFormat,
+    [draftQuality, currentJpegQuality, draftOutputFormat, currentOutputFormat],
   );
 
   const selectedPreset = useMemo(
@@ -88,6 +102,13 @@ export default function SettingsPanel({
         return 'Guaranteed';
     }
   };
+
+  const outputFormatOptions: { value: OutputFormat; label: string }[] = [
+    { value: 'jpeg', label: 'JPEG' },
+    { value: 'png', label: 'PNG' },
+    { value: 'webp', label: 'WebP' },
+    { value: 'gif', label: 'GIF' },
+  ];
 
   return (
     <section className={styles.settingsPanel} aria-label="Settings">
@@ -201,11 +222,36 @@ export default function SettingsPanel({
           </div>
         </div>
 
+        <div className={styles.settingsPanelRow}>
+          <label className={styles.settingsPanelLabel} htmlFor="outputFormat">
+            Output Format
+            <select
+              id="outputFormat"
+              className={styles.settingsPanelSelect}
+              value={draftOutputFormat}
+              onChange={(e) =>
+                setDraftOutputFormat(e.currentTarget.value as OutputFormat)
+              }
+            >
+              {outputFormatOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
         <div className={styles.settingsPanelActions}>
           <button
             type="button"
             className={styles.settingsPanelApplyButton}
-            onClick={() => onApply(normalize(draftQuality))}
+            onClick={() =>
+              onApply({
+                jpegQuality: normalize(draftQuality),
+                outputFormat: draftOutputFormat,
+              })
+            }
             disabled={!isDirty}
           >
             Apply

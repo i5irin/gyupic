@@ -1,6 +1,10 @@
 import type { DeliveryId } from '../domain/deliveryCatalog';
 import type { PickupId } from '../domain/pickupCatalog';
-import type { MetadataPolicyMode, PresetId } from '../domain/presets';
+import type {
+  MetadataPolicyMode,
+  OutputFormat,
+  PresetId,
+} from '../domain/presets';
 
 export type JobStatus =
   | 'queued'
@@ -88,6 +92,7 @@ export type ConvertSettings = {
   jpegQuality: number;
   presetId: PresetId;
   metadataPolicyMode: MetadataPolicyMode;
+  outputFormat: OutputFormat;
 };
 
 export type AppState = {

@@ -1,6 +1,10 @@
 export const ImageMimeTypes = {
   Jpeg: 'image/jpeg',
   Png: 'image/png',
+  Webp: 'image/webp',
+  Gif: 'image/gif',
+  Heic: 'image/heic',
+  Heif: 'image/heif',
 } as const;
 
 export type ImageMimeType =
