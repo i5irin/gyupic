@@ -22,6 +22,7 @@ import {
 } from './domain/deliveryCatalog';
 import { getPickup } from './domain/pickupCatalog';
 import { listPresets, getPreset, type PresetId } from './domain/presets';
+import { createPerfRecorder, runPerfSpan } from './utils/perfTrace';
 
 type PresetOptionView = {
   id: PresetId;
@@ -45,7 +46,8 @@ function safeRevokeObjectURL(url: string | undefined) {
   try {
     URL.revokeObjectURL(url);
   } catch {
-    // noop
+    // 何もしません
+    // No operation
   }
 }
 
@@ -183,10 +185,27 @@ export default function App() {
 
   const onChangeFiles = useCallback(
     async (files: File[]) => {
+      const batchRecorder = createPerfRecorder({
+        scenario: 'file-load',
+        count: files.length,
+      });
       const results = await Promise.allSettled(
         files.map(async (file) => {
-          const imageFile = await ImageFileService.load(file);
-          return { file, imageFile };
+          const itemRecorder = createPerfRecorder({
+            scenario: 'file-load',
+            type: file.type,
+            size: file.size,
+          });
+          try {
+            const imageFile = await runPerfSpan(
+              itemRecorder,
+              'load-image',
+              () => ImageFileService.load(file),
+            );
+            return { file, imageFile };
+          } finally {
+            itemRecorder?.commit();
+          }
         }),
       );
       const ok = results
@@ -196,6 +215,10 @@ export default function App() {
         )
         .map((r) => r.value);
       const failedCount = results.length - ok.length;
+      batchRecorder?.commit({
+        loaded: ok.length,
+        failed: failedCount,
+      });
       if (failedCount > 0) {
         showToast(`Skipped ${failedCount} invalid file(s).`);
       }
