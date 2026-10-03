@@ -1,3 +1,4 @@
+import exifr from 'exifr';
 import piexif from 'piexifjs';
 import type { DeliveryScenarioId } from '../../domain/deliveryScenarios';
 import {
@@ -20,6 +21,23 @@ const EXIF_TAGS = {
   OffsetTimeDigitized: 0x9012, // 36882
 };
 
+const EXIF_TIMESTAMP_FIELDS = [
+  'DateTimeOriginal',
+  'DateTimeDigitized',
+  'DateTime',
+] as const;
+
+const EXIF_OFFSET_FIELDS = [
+  'OffsetTimeOriginal',
+  'OffsetTimeDigitized',
+  'OffsetTime',
+] as const;
+
+const EXIF_PICK_FIELDS: string[] = [
+  ...EXIF_TIMESTAMP_FIELDS,
+  ...EXIF_OFFSET_FIELDS,
+];
+
 type DeriveOptions = {
   file: File;
 };
@@ -36,6 +54,14 @@ export type ApplyResult = {
   warningReason?: string;
 };
 
+type ExifTimestampField = (typeof EXIF_TIMESTAMP_FIELDS)[number];
+
+type ReadExifResult = {
+  field: ExifTimestampField;
+  value: string;
+  offset?: string;
+};
+
 function isExifCapable(file: File): boolean {
   return file.type?.toLowerCase().includes('jpeg');
 }
@@ -44,13 +70,23 @@ function isExifWritable(file: File): boolean {
   return isExifCapable(file);
 }
 
-function formatExifDate(date: Date): string {
+function formatExifLocalDate(date: Date): string {
   const pad = (value: number) => value.toString().padStart(2, '0');
-  return `${date.getUTCFullYear()}:${pad(date.getUTCMonth() + 1)}:${pad(
-    date.getUTCDate(),
-  )} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(
-    date.getUTCSeconds(),
+  return `${date.getFullYear()}:${pad(date.getMonth() + 1)}:${pad(
+    date.getDate(),
+  )} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds(),
   )}`;
+}
+
+function formatOffsetString(date: Date): string {
+  const offsetMinutes = date.getTimezoneOffset() * -1;
+  const sign = offsetMinutes >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMinutes);
+  const hours = Math.floor(abs / 60);
+  const minutes = abs % 60;
+  const pad = (value: number) => value.toString().padStart(2, '0');
+  return `${sign}${pad(hours)}:${pad(minutes)}`;
 }
 
 function buildExifDateStrings(
@@ -60,12 +96,13 @@ function buildExifDateStrings(
     return {
       primary: derived.value,
       secondary: derived.value,
+      offset: derived.offset,
     };
   }
   if (derived.kind === 'file') {
     const date = new Date(derived.value);
-    const primary = formatExifDate(date);
-    const offset = '+00:00';
+    const primary = formatExifLocalDate(date);
+    const offset = derived.offset || formatOffsetString(date);
     return {
       primary,
       secondary: primary,
@@ -137,42 +174,81 @@ function evaluateStatus(
   return { status: 'guaranteed' };
 }
 
+function normalizeExifValue(raw: unknown): string | null {
+  if (!raw) {
+    return null;
+  }
+  if (typeof raw === 'string') {
+    return raw;
+  }
+  if (raw instanceof Date) {
+    return formatExifLocalDate(raw);
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return formatExifLocalDate(new Date(raw));
+  }
+  return null;
+}
+
+async function readExifTimestampFromFile(
+  file: File,
+): Promise<ReadExifResult | null> {
+  try {
+    const metadata = await exifr.parse(file, {
+      pick: EXIF_PICK_FIELDS,
+    });
+    if (!metadata) {
+      return null;
+    }
+
+    const metadataRecord = metadata as Record<string, unknown>;
+    const offsetValue = EXIF_OFFSET_FIELDS.map((field) => metadataRecord[field])
+      .map((raw) => (typeof raw === 'string' ? raw : null))
+      .find((val): val is string => Boolean(val));
+
+    const found = EXIF_TIMESTAMP_FIELDS.map((field) => {
+      const raw = metadataRecord[field];
+      if (!raw) {
+        return null;
+      }
+      const normalized = normalizeExifValue(raw);
+      return normalized
+        ? {
+            field,
+            value: normalized,
+            ...(offsetValue ? { offset: offsetValue } : {}),
+          }
+        : null;
+    }).find((entry): entry is ReadExifResult => entry !== null);
+    if (found) {
+      return found;
+    }
+  } catch {
+    // noop: fall through to fallback
+  }
+  return null;
+}
+
 export async function deriveTimestamp({
   file,
 }: DeriveOptions): Promise<DerivedTimestamp> {
-  if (isExifCapable(file)) {
-    try {
-      const dataUrl = await blobToDataURL(file);
-      const exifData = piexif.load(dataUrl);
-      const candidates = [
-        {
-          field: 'DateTimeOriginal',
-          value: exifData.Exif?.[EXIF_TAGS.DateTimeOriginal],
-        },
-        {
-          field: 'DateTimeDigitized',
-          value: exifData.Exif?.[EXIF_TAGS.DateTimeDigitized],
-        },
-        { field: 'DateTime', value: exifData['0th']?.[EXIF_TAGS.DateTime] },
-      ] as const;
-      const found = candidates.find(
-        (
-          candidate,
-        ): candidate is {
-          field: 'DateTimeOriginal' | 'DateTimeDigitized' | 'DateTime';
-          value: string;
-        } => typeof candidate.value === 'string' && candidate.value.length > 0,
-      );
-      if (found) {
-        return { kind: 'exif', field: found.field, value: found.value };
-      }
-    } catch {
-      // noop: fall back to file-based metadata.
-    }
+  const exifTimestamp = await readExifTimestampFromFile(file);
+  if (exifTimestamp) {
+    return {
+      kind: 'exif',
+      field: exifTimestamp.field,
+      value: exifTimestamp.value,
+      offset: exifTimestamp.offset,
+    };
   }
 
   if (Number.isFinite(file.lastModified) && file.lastModified > 0) {
-    return { kind: 'file', value: file.lastModified };
+    const fallbackDate = new Date(file.lastModified);
+    return {
+      kind: 'file',
+      value: file.lastModified,
+      offset: formatOffsetString(fallbackDate),
+    };
   }
 
   return { kind: 'unavailable' };
