@@ -1,4 +1,4 @@
-import type { JobItem, JobStatus } from './jobTypes';
+import type { JobItem, JobStatus, JobErrorInfo } from './jobTypes';
 
 export type GridActionState = {
   canRetry: boolean;
@@ -13,7 +13,7 @@ export type GridItem = {
   previewUrl: string;
   status: JobStatus;
   isNew: boolean;
-  error?: string;
+  error?: JobErrorInfo;
   warningReason?: string;
   actions: GridActionState;
 };

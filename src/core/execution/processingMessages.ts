@@ -2,6 +2,7 @@ import type {
   ProcessingPipelineParams,
   ProcessingPipelineResult,
 } from '../pipeline/processingPipeline';
+import type { ProcessingErrorCode } from '../pipeline/processingErrors';
 
 export type WorkerRequestMessage = {
   type: 'process';
@@ -19,4 +20,5 @@ export type WorkerResponseMessage =
       type: 'error';
       jobId: string;
       reason: string;
+      errorCode?: ProcessingErrorCode;
     };
