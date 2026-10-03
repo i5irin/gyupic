@@ -4,6 +4,7 @@ export type GridActionState = {
   canRetry: boolean;
   canDownload: boolean;
   canCancel: boolean;
+  canShare: boolean;
 };
 
 export type GridItem = {
@@ -28,6 +29,7 @@ export function selectGridItems(items: JobItem[]): GridItem[] {
       canRetry: it.status === 'error' || it.status === 'warning',
       canDownload: it.status === 'done' || it.status === 'warning',
       canCancel: it.status === 'queued' || it.status === 'processing',
+      canShare: it.status === 'done' || it.status === 'warning',
     };
 
     return {

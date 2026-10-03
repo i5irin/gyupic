@@ -51,6 +51,10 @@
   gap: 4px;
 }
 
+.settings-panel-scenario-hint {
+  opacity: 0.85;
+}
+
 .settings-panel-note {
   font-size: 12px;
   line-height: 1.4;
