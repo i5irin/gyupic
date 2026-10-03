@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useReducer, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useReducer,
+  useState,
+} from 'react';
 import ImageFileService from './services/image-file-service';
 import FilePicker from './components/FilePicker';
 import ItemsGrid from './components/ItemsGrid';
@@ -8,6 +15,10 @@ import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
 import { runProcessingPipeline } from './core/pipeline/processingPipeline';
+import {
+  DELIVERY_SCENARIOS,
+  type DeliveryScenarioId,
+} from './domain/deliveryScenarios';
 
 function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -194,6 +205,34 @@ export default function App() {
     [dispatch, showToast],
   );
 
+  const scenarioOptions = useMemo(
+    () =>
+      Object.values(DELIVERY_SCENARIOS)
+        .filter((scenario) => scenario.category === 'stable')
+        .map((scenario) => ({
+          id: scenario.id,
+          title: scenario.title,
+          description: scenario.description,
+          guarantee: scenario.guarantee,
+        })),
+    [],
+  );
+
+  const onChangeScenario = useCallback(
+    (scenarioId: string) => {
+      const typedId = scenarioId as DeliveryScenarioId;
+      if (typedId === stateRef.current.deliveryScenarioId) {
+        return;
+      }
+      dispatch({ type: 'SET_DELIVERY_SCENARIO', scenarioId: typedId });
+      const scenario = DELIVERY_SCENARIOS[typedId];
+      if (scenario) {
+        showToast(`Scenario: ${scenario.title}`);
+      }
+    },
+    [dispatch, showToast],
+  );
+
   const isCanceledNow = (id: string) => {
     const now = stateRef.current;
     const it = now.items.find((x) => x.id === id);
@@ -348,6 +387,9 @@ export default function App() {
 
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
+        scenarioId={state.deliveryScenarioId}
+        scenarioOptions={scenarioOptions}
+        onChangeScenario={onChangeScenario}
         onApply={onApplySettings}
       />
 

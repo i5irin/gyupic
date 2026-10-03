@@ -1,12 +1,28 @@
 import { useEffect, useMemo, useState } from 'react';
 import styles from './SettingsPanel.module.css';
 
+type ScenarioOption = {
+  id: string;
+  title: string;
+  description: string;
+  guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+};
+
 type Props = {
   currentJpegQuality: number;
+  scenarioId: string;
+  scenarioOptions: ScenarioOption[];
+  onChangeScenario: (id: string) => void;
   onApply: (jpegQuality: number) => void;
 };
 
-export default function SettingsPanel({ currentJpegQuality, onApply }: Props) {
+export default function SettingsPanel({
+  currentJpegQuality,
+  scenarioId,
+  scenarioOptions,
+  onChangeScenario,
+  onApply,
+}: Props) {
   const MIN = 0.1;
   const MAX = 1.0;
   const STEP = 0.05;
@@ -31,6 +47,35 @@ export default function SettingsPanel({ currentJpegQuality, onApply }: Props) {
     [draftQuality, currentJpegQuality],
   );
 
+  const selectedScenario = useMemo(
+    () => scenarioOptions.find((option) => option.id === scenarioId),
+    [scenarioId, scenarioOptions],
+  );
+
+  const scenarioBadgeClass = (guarantee: ScenarioOption['guarantee']) => {
+    switch (guarantee) {
+      case 'best-effort':
+        return styles.settingsPanelBadgeBestEffort;
+      case 'unverified':
+        return styles.settingsPanelBadgeUnverified;
+      case 'guaranteed':
+      default:
+        return styles.settingsPanelBadgeGuaranteed;
+    }
+  };
+
+  const scenarioBadgeLabel = (guarantee: ScenarioOption['guarantee']) => {
+    switch (guarantee) {
+      case 'best-effort':
+        return 'Best effort';
+      case 'unverified':
+        return 'Unverified';
+      case 'guaranteed':
+      default:
+        return 'Guaranteed';
+    }
+  };
+
   return (
     <section className={styles.settingsPanel} aria-label="Settings">
       <div className={styles.settingsPanelHeader}>
@@ -38,6 +83,47 @@ export default function SettingsPanel({ currentJpegQuality, onApply }: Props) {
       </div>
 
       <div className={styles.settingsPanelBody}>
+        {scenarioOptions.length > 0 && (
+          <div className={styles.settingsPanelRow}>
+            <label
+              className={styles.settingsPanelLabel}
+              htmlFor="deliveryScenario"
+            >
+              Delivery Scenario
+              <select
+                id="deliveryScenario"
+                className={styles.settingsPanelSelect}
+                value={scenarioId}
+                onChange={(e) => {
+                  const next = e.currentTarget.value;
+                  if (next !== scenarioId) {
+                    onChangeScenario(next);
+                  }
+                }}
+              >
+                {scenarioOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {selectedScenario && (
+              <div className={styles.settingsPanelScenarioDescription}>
+                <span>{selectedScenario.description}</span>
+                <span
+                  className={`${styles.settingsPanelBadge} ${scenarioBadgeClass(
+                    selectedScenario.guarantee,
+                  )}`}
+                >
+                  {scenarioBadgeLabel(selectedScenario.guarantee)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className={styles.settingsPanelRow}>
           <label className={styles.settingsPanelLabel} htmlFor="jpegQuality">
             JPEG Quality: <strong>{Math.round(draftQuality * 100)}%</strong>

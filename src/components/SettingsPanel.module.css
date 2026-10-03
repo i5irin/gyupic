@@ -35,6 +35,22 @@
   width: 100%;
 }
 
+.settings-panel-select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid rgb(0 0 0 / 18%);
+  background: #fff;
+}
+
+.settings-panel-scenario-description {
+  font-size: 12px;
+  line-height: 1.4;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .settings-panel-note {
   font-size: 12px;
   line-height: 1.4;
@@ -63,4 +79,29 @@
 .settings-panel-hint {
   font-size: 12px;
   opacity: 0.8;
+}
+
+.settings-panel-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.settings-panel-badge-guaranteed {
+  background: #e6f7ee;
+  color: #117a42;
+}
+
+.settings-panel-badge-best-effort {
+  background: #fff6e5;
+  color: #946200;
+}
+
+.settings-panel-badge-unverified {
+  background: #ffecec;
+  color: #a11a1a;
 }
