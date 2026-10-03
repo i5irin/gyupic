@@ -8,10 +8,10 @@ import type {
 } from '../../domain/presets';
 import type { DerivedTimestamp, JobMetadataInfo } from '../../state/jobTypes';
 import {
-  applyTimestamp,
-  deriveTimestamp,
-  parseExifDateTime,
-} from '../metadata/metadataPolicy';
+  applyMetadataWithMetadataCore,
+  deriveTimestampWithMetadataCore,
+} from '../metadata/metadataCoreAdapter';
+import { parseExifDateTime } from '../metadata/metadataPolicy';
 import {
   canUseOffscreenConversion,
   convertWithOffscreenCanvas,
@@ -203,10 +203,16 @@ export async function runProcessingPipeline(
     outputFormat,
   );
 
-  let derivedTimestamp: Awaited<ReturnType<typeof deriveTimestamp>>;
+  const captureTimeEnabled =
+    timestampWriteMode !== 'off' || filenameStrategy === 'timestamped';
+
+  let deriveSession: Awaited<
+    ReturnType<typeof deriveTimestampWithMetadataCore>
+  >;
   try {
-    derivedTimestamp = await deriveTimestamp({
+    deriveSession = await deriveTimestampWithMetadataCore({
       file: sourceFile,
+      captureTimeEnabled,
     });
   } catch (error) {
     throw asProcessingPipelineError(
@@ -215,6 +221,7 @@ export async function runProcessingPipeline(
       'Failed to derive metadata from source file',
     );
   }
+  const derivedTimestamp = deriveSession.derived;
 
   const filenamePlan = buildFilenamePlan({
     filenameStrategy,
@@ -224,25 +231,17 @@ export async function runProcessingPipeline(
     outputFormat,
   });
 
-  let applyResult: Awaited<ReturnType<typeof applyTimestamp>>;
-  try {
-    applyResult = await applyTimestamp({
-      file: convertedFile,
-      derived: derivedTimestamp,
-      ordering,
-      timestampWriteMode,
-      rewriteExif,
-      injectFromEditedTime,
-      fileNameOverride: filenamePlan.targetName,
-      lastModifiedOverride: filenamePlan.timestampMs,
-    });
-  } catch (error) {
-    throw asProcessingPipelineError(
-      error,
-      'metadata_apply_failed',
-      'Failed to apply metadata to converted file',
-    );
-  }
+  const applyResult = await applyMetadataWithMetadataCore({
+    file: convertedFile,
+    session: deriveSession,
+    ordering,
+    timestampWriteMode,
+    rewriteExif,
+    injectFromEditedTime,
+    outputFormat,
+    fileNameOverride: filenamePlan.targetName,
+    lastModifiedOverrideMs: filenamePlan.timestampMs,
+  });
 
   let finalFile = applyResult.file;
   if (filenamePlan.targetName && finalFile.name !== filenamePlan.targetName) {
