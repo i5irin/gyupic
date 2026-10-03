@@ -1,48 +1,60 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { FilenameSource, OutputFormat } from '../domain/presets';
+import type {
+  FilenameStrategy,
+  OutputFormat,
+  TimestampWriteMode,
+} from '../domain/presets';
 import styles from './SettingsPanel.module.css';
-
-type DeliveryInfo = {
-  title: string;
-  description: string;
-  guarantee: 'guaranteed' | 'best-effort' | 'unverified';
-};
 
 type PresetOption = {
   id: string;
   title: string;
-  description: string;
-  guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+  story: string;
+  usage: string[];
   category: 'stable' | 'experimental';
+  recommended?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+};
+
+type ActivePresetInfo = {
+  story: string;
+  usage: string[];
+  environmentHints?: string[];
 };
 
 type Props = {
   currentJpegQuality: number;
   currentOutputFormat: OutputFormat;
-  currentFilenameSource: FilenameSource;
+  currentFilenameStrategy: FilenameStrategy;
+  currentTimestampMode: TimestampWriteMode;
+  rewriteExif: boolean;
+  injectFromEditedTime: boolean;
   presetId: string;
   presetOptions: PresetOption[];
+  activePreset?: ActivePresetInfo;
   onChangePreset: (id: string) => void;
-  pickupInfo?: { title: string; description: string };
-  deliveryInfo?: DeliveryInfo;
   onApply: (settings: {
     jpegQuality: number;
     outputFormat: OutputFormat;
-    filenameSource: FilenameSource;
+    filenameStrategy: FilenameStrategy;
+    timestampWriteMode: TimestampWriteMode;
+    rewriteExif: boolean;
+    injectFromEditedTime: boolean;
   }) => void;
 };
 
 export default function SettingsPanel({
   currentJpegQuality,
   currentOutputFormat,
-  currentFilenameSource,
+  currentFilenameStrategy,
+  currentTimestampMode,
+  rewriteExif,
+  injectFromEditedTime,
   presetId,
   presetOptions,
+  activePreset,
   onChangePreset,
-  pickupInfo,
-  deliveryInfo,
   onApply,
 }: Props) {
   const MIN = 0.1;
@@ -52,7 +64,6 @@ export default function SettingsPanel({
   const normalize = (v: number) => {
     const clamped = Math.min(MAX, Math.max(MIN, v));
     const stepped = Math.round(clamped / STEP) * STEP;
-    // avoid 0.30000000000004 style floats
     return Number(stepped.toFixed(2));
   };
 
@@ -61,8 +72,14 @@ export default function SettingsPanel({
   );
   const [draftOutputFormat, setDraftOutputFormat] =
     useState<OutputFormat>(currentOutputFormat);
-  const [draftFilenameSource, setDraftFilenameSource] =
-    useState<FilenameSource>(currentFilenameSource);
+  const [draftFilenameStrategy, setDraftFilenameStrategy] =
+    useState<FilenameStrategy>(currentFilenameStrategy);
+  const [draftTimestampMode, setDraftTimestampMode] =
+    useState<TimestampWriteMode>(currentTimestampMode);
+  const [draftRewriteExif, setDraftRewriteExif] =
+    useState<boolean>(rewriteExif);
+  const [draftInjectEdited, setDraftInjectEdited] =
+    useState<boolean>(injectFromEditedTime);
 
   useEffect(() => {
     setDraftQuality(normalize(currentJpegQuality));
@@ -73,21 +90,42 @@ export default function SettingsPanel({
   }, [currentOutputFormat]);
 
   useEffect(() => {
-    setDraftFilenameSource(currentFilenameSource);
-  }, [currentFilenameSource]);
+    setDraftFilenameStrategy(currentFilenameStrategy);
+  }, [currentFilenameStrategy]);
+
+  useEffect(() => {
+    setDraftTimestampMode(currentTimestampMode);
+  }, [currentTimestampMode]);
+
+  useEffect(() => {
+    setDraftRewriteExif(rewriteExif);
+  }, [rewriteExif]);
+
+  useEffect(() => {
+    setDraftInjectEdited(injectFromEditedTime);
+  }, [injectFromEditedTime]);
 
   const isDirty = useMemo(
     () =>
       normalize(draftQuality) !== normalize(currentJpegQuality) ||
       draftOutputFormat !== currentOutputFormat ||
-      draftFilenameSource !== currentFilenameSource,
+      draftFilenameStrategy !== currentFilenameStrategy ||
+      draftTimestampMode !== currentTimestampMode ||
+      draftRewriteExif !== rewriteExif ||
+      draftInjectEdited !== injectFromEditedTime,
     [
       draftQuality,
       currentJpegQuality,
       draftOutputFormat,
       currentOutputFormat,
-      draftFilenameSource,
-      currentFilenameSource,
+      draftFilenameStrategy,
+      currentFilenameStrategy,
+      draftTimestampMode,
+      currentTimestampMode,
+      draftRewriteExif,
+      rewriteExif,
+      draftInjectEdited,
+      injectFromEditedTime,
     ],
   );
 
@@ -96,30 +134,6 @@ export default function SettingsPanel({
     [presetId, presetOptions],
   );
 
-  const deliveryBadgeClass = (guarantee: DeliveryInfo['guarantee']) => {
-    switch (guarantee) {
-      case 'best-effort':
-        return styles.settingsPanelBadgeBestEffort;
-      case 'unverified':
-        return styles.settingsPanelBadgeUnverified;
-      case 'guaranteed':
-      default:
-        return styles.settingsPanelBadgeGuaranteed;
-    }
-  };
-
-  const deliveryBadgeLabel = (guarantee: DeliveryInfo['guarantee']) => {
-    switch (guarantee) {
-      case 'best-effort':
-        return 'Best effort';
-      case 'unverified':
-        return 'Unverified';
-      case 'guaranteed':
-      default:
-        return 'Guaranteed';
-    }
-  };
-
   const outputFormatOptions: { value: OutputFormat; label: string }[] = [
     { value: 'jpeg', label: 'JPEG' },
     { value: 'png', label: 'PNG' },
@@ -127,10 +141,16 @@ export default function SettingsPanel({
     { value: 'gif', label: 'GIF' },
   ];
 
-  const filenameSourceOptions: { value: FilenameSource; label: string }[] = [
-    { value: 'original', label: 'Keep original name' },
-    { value: 'exif', label: 'Exif capture time' },
-    { value: 'file-last-modified', label: 'File modified time' },
+  const filenameStrategyOptions: { value: FilenameStrategy; label: string }[] =
+    [
+      { value: 'keep-original', label: 'Keep original names' },
+      { value: 'timestamped', label: 'Add YYYYMMDD_HHmmss prefix' },
+    ];
+
+  const timestampModeOptions: { value: TimestampWriteMode; label: string }[] = [
+    { value: 'copy-exif', label: 'Copy Exif capture time' },
+    { value: 'from-file-modified', label: 'Use edited/file time' },
+    { value: 'off', label: 'Do not rewrite timestamps' },
   ];
 
   return (
@@ -162,6 +182,7 @@ export default function SettingsPanel({
                     disabled={option.disabled}
                   >
                     {option.title}
+                    {option.recommended ? ' (Recommended)' : ''}
                     {option.disabled ? ' (Unavailable)' : ''}
                   </option>
                 ))}
@@ -169,14 +190,7 @@ export default function SettingsPanel({
             </label>
             {selectedPreset && (
               <div className={styles.settingsPanelScenarioDescription}>
-                <span>{selectedPreset.description}</span>
-                <span
-                  className={`${styles.settingsPanelBadge} ${deliveryBadgeClass(
-                    selectedPreset.guarantee,
-                  )}`}
-                >
-                  {deliveryBadgeLabel(selectedPreset.guarantee)}
-                </span>
+                <span>{selectedPreset.story}</span>
                 {selectedPreset.category === 'experimental' && (
                   <span
                     className={`${styles.settingsPanelBadge} ${styles.settingsPanelBadgeExperimental}`}
@@ -194,29 +208,22 @@ export default function SettingsPanel({
           </div>
         )}
 
-        {pickupInfo && (
+        {activePreset?.usage && activePreset.usage.length > 0 && (
           <div className={styles.settingsPanelRow}>
-            <div className={styles.settingsPanelLabel}>Pickup Source</div>
+            <div className={styles.settingsPanelLabel}>Use cases</div>
             <div className={styles.settingsPanelScenarioDescription}>
-              <strong>{pickupInfo.title}</strong>
-              <span>{pickupInfo.description}</span>
-            </div>
-          </div>
-        )}
-
-        {deliveryInfo && (
-          <div className={styles.settingsPanelRow}>
-            <div className={styles.settingsPanelLabel}>Delivery Path</div>
-            <div className={styles.settingsPanelScenarioDescription}>
-              <strong>{deliveryInfo.title}</strong>
-              <span>{deliveryInfo.description}</span>
-              <span
-                className={`${styles.settingsPanelBadge} ${deliveryBadgeClass(
-                  deliveryInfo.guarantee,
-                )}`}
-              >
-                {deliveryBadgeLabel(deliveryInfo.guarantee)}
-              </span>
+              <ul className={styles.settingsPanelUsageList}>
+                {activePreset.usage.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              {activePreset.environmentHints && (
+                <div className={styles.settingsPanelHintBlock}>
+                  {activePreset.environmentHints.map((hint) => (
+                    <div key={hint}>{hint}</div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -266,17 +273,22 @@ export default function SettingsPanel({
         </div>
 
         <div className={styles.settingsPanelRow}>
-          <label className={styles.settingsPanelLabel} htmlFor="filenameSource">
-            Filename Timestamp
+          <label
+            className={styles.settingsPanelLabel}
+            htmlFor="filenameStrategy"
+          >
+            Filename Strategy
             <select
-              id="filenameSource"
+              id="filenameStrategy"
               className={styles.settingsPanelSelect}
-              value={draftFilenameSource}
+              value={draftFilenameStrategy}
               onChange={(e) =>
-                setDraftFilenameSource(e.currentTarget.value as FilenameSource)
+                setDraftFilenameStrategy(
+                  e.currentTarget.value as FilenameStrategy,
+                )
               }
             >
-              {filenameSourceOptions.map((option) => (
+              {filenameStrategyOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -284,8 +296,60 @@ export default function SettingsPanel({
             </select>
           </label>
           <div className={styles.settingsPanelNote}>
-            Filenames adopt the selected timestamp; failures fall back to the
-            original name with a warning.
+            `timestamped` adds `YYYYMMDD_HHmmss_` to filenames to help Finder /
+            Files sort by name.
+          </div>
+        </div>
+
+        <div className={styles.settingsPanelRow}>
+          <label className={styles.settingsPanelLabel} htmlFor="timestampMode">
+            Timestamp Source
+            <select
+              id="timestampMode"
+              className={styles.settingsPanelSelect}
+              value={draftTimestampMode}
+              onChange={(e) =>
+                setDraftTimestampMode(
+                  e.currentTarget.value as TimestampWriteMode,
+                )
+              }
+            >
+              {timestampModeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className={styles.settingsPanelRow}>
+          <div className={styles.settingsPanelLabel}>Advanced Options</div>
+          <div className={styles.settingsPanelAdvancedToggles}>
+            <label
+              className={styles.settingsPanelCheckboxLabel}
+              htmlFor="rewriteExifTimestamps"
+            >
+              <input
+                id="rewriteExifTimestamps"
+                type="checkbox"
+                checked={draftRewriteExif}
+                onChange={(e) => setDraftRewriteExif(e.currentTarget.checked)}
+              />
+              Rewrite Exif timestamps
+            </label>
+            <label
+              className={styles.settingsPanelCheckboxLabel}
+              htmlFor="editedFileTimeFallback"
+            >
+              <input
+                id="editedFileTimeFallback"
+                type="checkbox"
+                checked={draftInjectEdited}
+                onChange={(e) => setDraftInjectEdited(e.currentTarget.checked)}
+              />
+              Allow edited/file time fallback
+            </label>
           </div>
         </div>
 
@@ -297,7 +361,10 @@ export default function SettingsPanel({
               onApply({
                 jpegQuality: normalize(draftQuality),
                 outputFormat: draftOutputFormat,
-                filenameSource: draftFilenameSource,
+                filenameStrategy: draftFilenameStrategy,
+                timestampWriteMode: draftTimestampMode,
+                rewriteExif: draftRewriteExif,
+                injectFromEditedTime: draftInjectEdited,
               })
             }
             disabled={!isDirty}
@@ -312,8 +379,6 @@ export default function SettingsPanel({
     </section>
   );
 }
-
 SettingsPanel.defaultProps = {
-  pickupInfo: undefined,
-  deliveryInfo: undefined,
+  activePreset: undefined,
 };

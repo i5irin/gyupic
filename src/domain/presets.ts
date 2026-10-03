@@ -1,97 +1,154 @@
-import { PickupIds, type PickupId } from './pickupCatalog';
-import {
-  DeliveryIds,
-  type DeliveryId,
-  DELIVERY_CATALOG,
-} from './deliveryCatalog';
-
-export type MetadataPolicyMode =
-  | 'strict'
-  | 'strict-best-effort'
-  | 'fallback-filetime';
-
 export type OutputFormat = 'jpeg' | 'png' | 'webp' | 'gif';
 
-export type FilenameSource = 'original' | 'exif' | 'file-last-modified';
+export type FilenameStrategy = 'keep-original' | 'timestamped';
 
-export const PresetIds = {
-  IosPhotosRecommended: 'preset.ios.photos.recommended',
-  IosShareBeta: 'preset.ios.share.beta',
-  IosFilesExperimental: 'preset.ios.files.experimental',
-} as const;
+export type TimestampWriteMode = 'off' | 'copy-exif' | 'from-file-modified';
 
-export type PresetId = (typeof PresetIds)[keyof typeof PresetIds];
+export type OrderingRequirement = {
+  sortingAxis: 'exif' | 'filename';
+  /** Requires a valid Exif capture date to be written */
+  needsExif?: boolean;
+  /** Allows falling back to edited/lastModified timestamps when Exif is missing */
+  allowEditedTimeFallback?: boolean;
+};
+
+export type PresetId =
+  | 'scenario.photos-to-photos'
+  | 'scenario.folders-to-photos'
+  | 'scenario.photos-to-folders';
+
+export type InputBehavior = {
+  label: string;
+  note: string;
+  accept: string;
+  multiple: boolean;
+};
 
 export type PresetDefinition = {
   id: PresetId;
   title: string;
-  description: string;
-  pickupId: PickupId;
-  deliveryId: DeliveryId;
-  defaultJpegQuality: number;
-  metadataPolicyMode: MetadataPolicyMode;
-  defaultOutputFormat: OutputFormat;
-  defaultFilenameSource: FilenameSource;
+  story: string;
+  usage: string[];
   category: 'stable' | 'experimental';
+  recommended?: boolean;
+  ordering: OrderingRequirement;
+  defaultSettings: {
+    jpegQuality: number;
+    outputFormat: OutputFormat;
+    filenameStrategy: FilenameStrategy;
+    timestampWriteMode: TimestampWriteMode;
+    rewriteExif: boolean;
+    injectFromEditedTime: boolean;
+  };
+  inputBehavior: InputBehavior;
+  environmentHints?: string[];
   requiresHttps?: boolean;
   requiresNavigatorShareFiles?: boolean;
 };
 
-export const PRESETS: Record<PresetId, PresetDefinition> = {
-  [PresetIds.IosPhotosRecommended]: {
-    id: PresetIds.IosPhotosRecommended,
-    title: 'Photos (Recommended)',
-    description: 'Convert and return to the iOS Photos app.',
-    pickupId: PickupIds.Photos,
-    deliveryId: DeliveryIds.Photos,
-    defaultJpegQuality: 0.85,
-    metadataPolicyMode: 'strict',
-    defaultOutputFormat: 'jpeg',
-    defaultFilenameSource: 'original',
+const PRESETS: Record<PresetId, PresetDefinition> = {
+  'scenario.photos-to-photos': {
+    id: 'scenario.photos-to-photos',
+    title: 'Return to Photos',
+    story: 'Keep iOS/macOS Photos ordering intact when recompressing.',
+    usage: [
+      'Recompress screenshots sorted by capture date and return to Photos app.',
+      'Convert images without changing their order in Photos.',
+    ],
     category: 'stable',
+    recommended: true,
+    ordering: {
+      sortingAxis: 'exif',
+      needsExif: true,
+      allowEditedTimeFallback: false,
+    },
+    defaultSettings: {
+      jpegQuality: 0.85,
+      outputFormat: 'jpeg',
+      filenameStrategy: 'keep-original',
+      timestampWriteMode: 'copy-exif',
+      rewriteExif: true,
+      injectFromEditedTime: false,
+    },
+    inputBehavior: {
+      label: 'Add from Photos',
+      note: 'Use the iOS photo picker to select screenshots or camera roll items.',
+      accept: 'image/*',
+      multiple: true,
+    },
   },
-  [PresetIds.IosShareBeta]: {
-    id: PresetIds.IosShareBeta,
-    title: 'Share Sheet (Beta)',
-    description: 'Send converted images through the iOS Share Sheet.',
-    pickupId: PickupIds.Photos,
-    deliveryId: DeliveryIds.ShareSheet,
-    defaultJpegQuality: 0.75,
-    metadataPolicyMode: 'strict-best-effort',
-    defaultOutputFormat: 'jpeg',
-    defaultFilenameSource: 'original',
-    category: 'experimental',
-    requiresHttps: true,
-    requiresNavigatorShareFiles: true,
+  'scenario.folders-to-photos': {
+    id: 'scenario.folders-to-photos',
+    title: 'Folders → Photos',
+    story:
+      'Promote files sorted by edited time (Finder/Files) back into Photos.',
+    usage: [
+      'Return images sorted by modified date in Folders/Files to Photos.',
+      'Sort images picked from iCloud Drive / Files by capture date.',
+    ],
+    category: 'stable',
+    ordering: {
+      sortingAxis: 'exif',
+      needsExif: true,
+      allowEditedTimeFallback: true,
+    },
+    defaultSettings: {
+      jpegQuality: 0.85,
+      outputFormat: 'jpeg',
+      filenameStrategy: 'timestamped',
+      timestampWriteMode: 'from-file-modified',
+      rewriteExif: true,
+      injectFromEditedTime: true,
+    },
+    inputBehavior: {
+      label: 'Add from Files / Finder',
+      note: 'Drag & drop images or use the Files dialog. HEIC/JPEG/PNG accepted.',
+      accept: 'image/*,.heic,.jpeg,.jpg,.png',
+      multiple: true,
+    },
   },
-  [PresetIds.IosFilesExperimental]: {
-    id: PresetIds.IosFilesExperimental,
-    title: 'Files (Experimental)',
-    description: 'Save to Files / Finder for later organization.',
-    pickupId: PickupIds.Photos,
-    deliveryId: DeliveryIds.Files,
-    defaultJpegQuality: 0.85,
-    metadataPolicyMode: 'fallback-filetime',
-    defaultOutputFormat: 'jpeg',
-    defaultFilenameSource: 'file-last-modified',
-    category: 'experimental',
+  'scenario.photos-to-folders': {
+    id: 'scenario.photos-to-folders',
+    title: 'Photos → Folders',
+    story: 'Export Photos ordering into filename-sorted folders.',
+    usage: [
+      'Keep Photos app order while organizing in Finder/Explorer.',
+      'Arrange in name order in iOS Photos → Windows/macOS/iOS Files.',
+    ],
+    category: 'stable',
+    ordering: {
+      sortingAxis: 'filename',
+      needsExif: false,
+      allowEditedTimeFallback: true,
+    },
+    defaultSettings: {
+      jpegQuality: 0.85,
+      outputFormat: 'jpeg',
+      filenameStrategy: 'timestamped',
+      timestampWriteMode: 'copy-exif',
+      rewriteExif: true,
+      injectFromEditedTime: true,
+    },
+    inputBehavior: {
+      label: 'Add from Photos',
+      note: 'Select images from Photos / Camera Roll to export with timestamped filenames.',
+      accept: 'image/*',
+      multiple: true,
+    },
   },
 };
 
-export const DEFAULT_PRESET_ID: PresetId = PresetIds.IosPhotosRecommended;
+export const DEFAULT_PRESET_ID: PresetId = 'scenario.photos-to-photos';
 
 export function listPresets(): PresetDefinition[] {
   return Object.values(PRESETS);
 }
 
-export function getPreset(id: PresetId): PresetDefinition | undefined {
-  return PRESETS[id];
-}
-
-export function getPresetDeliveryGuarantee(id: PresetId) {
-  const preset = getPreset(id);
-  if (!preset) {
-    return undefined;
+export function getPreset(
+  id: PresetId | undefined,
+): PresetDefinition | undefined {
+  if (!id) {
+    return PRESETS[DEFAULT_PRESET_ID];
   }
-  return DELIVERY_CATALOG[preset.deliveryId]?.guarantee;
+  return PRESETS[id];
 }

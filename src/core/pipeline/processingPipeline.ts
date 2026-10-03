@@ -1,11 +1,10 @@
 import ImageFileService from '../../services/image-file-service';
-import type { DeliveryId } from '../../domain/deliveryCatalog';
-import type { PickupId } from '../../domain/pickupCatalog';
 import type {
-  FilenameSource,
-  MetadataPolicyMode,
+  FilenameStrategy,
+  OrderingRequirement,
   OutputFormat,
   PresetId,
+  TimestampWriteMode,
 } from '../../domain/presets';
 import type { DerivedTimestamp, JobMetadataInfo } from '../../state/jobTypes';
 import {
@@ -24,11 +23,12 @@ export type ProcessingPipelineParams = {
   sourceFile: File;
   jpegQuality: number;
   outputFormat: OutputFormat;
-  filenameSource: FilenameSource;
-  pickupId: PickupId;
-  deliveryId: DeliveryId;
+  filenameStrategy: FilenameStrategy;
+  timestampWriteMode: TimestampWriteMode;
+  rewriteExif: boolean;
+  injectFromEditedTime: boolean;
   presetId: PresetId;
-  metadataPolicyMode: MetadataPolicyMode;
+  ordering: OrderingRequirement;
 };
 
 export type ProcessingPipelineResult = {
@@ -109,76 +109,77 @@ type FilenamePlan = {
   warning?: string;
 };
 
-function resolveTimestampForFilename(
-  filenameSource: FilenameSource,
+function resolveTimestampMs(
   derived: DerivedTimestamp,
   sourceFile: File,
-): { timestampMs?: number; warning?: string } {
-  if (filenameSource === 'original') {
-    return {};
-  }
-  if (filenameSource === 'exif') {
-    if (derived.kind !== 'exif') {
-      return {
-        warning: 'Rename skipped: Exif timestamp unavailable.',
-      };
-    }
-    const parsed = parseExifDateTime(derived.value, derived.offset);
-    if (parsed === null) {
-      return {
-        warning: 'Rename skipped: Failed to parse Exif timestamp.',
-      };
-    }
-    return { timestampMs: parsed };
-  }
-  if (filenameSource === 'file-last-modified') {
-    if (
-      derived.kind === 'file' &&
-      typeof derived.value === 'number' &&
-      Number.isFinite(derived.value)
-    ) {
-      return { timestampMs: derived.value };
-    }
+  mode: TimestampWriteMode,
+): number | undefined {
+  if (mode === 'from-file-modified') {
     if (
       Number.isFinite(sourceFile.lastModified) &&
       sourceFile.lastModified > 0
     ) {
-      return { timestampMs: sourceFile.lastModified };
+      return sourceFile.lastModified;
     }
-    return {
-      warning: 'Rename skipped: File modified timestamp unavailable.',
-    };
+    if (derived.kind === 'file') {
+      return derived.value;
+    }
   }
-  return { warning: 'Rename skipped: Unsupported timestamp source.' };
+  if (mode === 'copy-exif' || mode === 'off') {
+    if (derived.kind === 'exif') {
+      const parsed = parseExifDateTime(derived.value, derived.offset);
+      if (parsed !== null) {
+        return parsed;
+      }
+    }
+    if (derived.kind === 'file') {
+      return derived.value;
+    }
+    if (
+      mode === 'off' &&
+      Number.isFinite(sourceFile.lastModified) &&
+      sourceFile.lastModified > 0
+    ) {
+      return sourceFile.lastModified;
+    }
+  }
+  return undefined;
 }
 
 function buildFilenamePlan(options: {
-  filenameSource: FilenameSource;
+  filenameStrategy: FilenameStrategy;
+  timestampWriteMode: TimestampWriteMode;
   derived: DerivedTimestamp;
   sourceFile: File;
   outputFormat: OutputFormat;
 }): FilenamePlan {
-  const { filenameSource, derived, sourceFile, outputFormat } = options;
-  if (filenameSource === 'original') {
-    return {};
-  }
-  const timestampInfo = resolveTimestampForFilename(
-    filenameSource,
+  const {
+    filenameStrategy,
+    timestampWriteMode,
     derived,
     sourceFile,
+    outputFormat,
+  } = options;
+  if (filenameStrategy === 'keep-original') {
+    return {};
+  }
+  const timestampMs = resolveTimestampMs(
+    derived,
+    sourceFile,
+    timestampWriteMode,
   );
-  if (!timestampInfo.timestampMs) {
+  if (!timestampMs) {
     return {
-      warning: timestampInfo.warning,
+      warning: 'Rename skipped: Timestamp unavailable.',
     };
   }
-  const date = new Date(timestampInfo.timestampMs);
+  const date = new Date(timestampMs);
   const timestamp = formatTimestampForFilename(date);
   const baseName = sanitizeBaseName(getBaseName(sourceFile.name || ''));
   const config = OUTPUT_FORMAT_CONFIG[outputFormat];
   return {
     targetName: `${timestamp}_${baseName}${config.extension}`,
-    timestampMs: timestampInfo.timestampMs,
+    timestampMs,
   };
 }
 
@@ -189,11 +190,12 @@ export async function runProcessingPipeline(
     sourceFile,
     jpegQuality,
     outputFormat,
-    filenameSource,
-    pickupId,
-    deliveryId,
+    filenameStrategy,
+    timestampWriteMode,
+    rewriteExif,
+    injectFromEditedTime,
     presetId,
-    metadataPolicyMode,
+    ordering,
   } = params;
   const convertedFile = await convertSourceToFormat(
     sourceFile,
@@ -215,7 +217,8 @@ export async function runProcessingPipeline(
   }
 
   const filenamePlan = buildFilenamePlan({
-    filenameSource,
+    filenameStrategy,
+    timestampWriteMode,
     derived: derivedTimestamp,
     sourceFile,
     outputFormat,
@@ -226,8 +229,10 @@ export async function runProcessingPipeline(
     applyResult = await applyTimestamp({
       file: convertedFile,
       derived: derivedTimestamp,
-      deliveryId,
-      metadataPolicyMode,
+      ordering,
+      timestampWriteMode,
+      rewriteExif,
+      injectFromEditedTime,
       fileNameOverride: filenamePlan.targetName,
       lastModifiedOverride: filenamePlan.timestampMs,
     });
@@ -260,20 +265,20 @@ export async function runProcessingPipeline(
   const reductionRatio =
     sizeBefore > 0 ? Math.max(0, (sizeBefore - sizeAfter) / sizeBefore) : 0;
 
+  const metadata: JobMetadataInfo = {
+    presetId,
+    ordering,
+    derived: derivedTimestamp,
+    status: applyResult.status,
+    reason: applyResult.warningReason,
+  };
+
   return {
     file: finalFile,
     sizeBefore,
     sizeAfter,
     reductionRatio,
-    metadata: {
-      presetId,
-      pickupId,
-      deliveryId,
-      metadataPolicyMode,
-      derived: derivedTimestamp,
-      status: applyResult.status,
-      reason: applyResult.warningReason,
-    },
+    metadata,
     warningReason: applyResult.warningReason,
     filenameWarning: filenamePlan.warning,
     expectedFileName: finalFile.name,

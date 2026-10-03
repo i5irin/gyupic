@@ -11,6 +11,7 @@ import {
   ProcessingPipelineError,
   ProcessingAbortedError,
 } from '../pipeline/processingErrors';
+import { getPreset } from '../../domain/presets';
 
 type Dispatch = (action: AppAction) => void;
 
@@ -25,8 +26,6 @@ type JobRunContext = {
   runId: number;
   settingsRev: number;
   settings: ConvertSettings;
-  pickupId: AppState['pickupId'];
-  deliveryId: AppState['deliveryId'];
 };
 
 export default class QueueManager {
@@ -114,22 +113,27 @@ export default class QueueManager {
       runId: snapshotSource.runId,
       settingsRev: snapshotSource.settingsRev,
       settings: snapshotSource.settings,
-      pickupId: snapshotSource.pickupId,
-      deliveryId: snapshotSource.deliveryId,
     };
 
     this.running.set(item.id, context);
     this.dispatch({ type: 'START_ITEM', id: item.id });
 
+    const preset = getPreset(context.settings.presetId);
+    const ordering = preset?.ordering ?? {
+      sortingAxis: 'exif',
+      needsExif: true,
+    };
+
     const params = {
       sourceFile: item.src.file,
       jpegQuality: context.settings.jpegQuality,
       outputFormat: context.settings.outputFormat,
-      filenameSource: context.settings.filenameSource,
-      pickupId: context.pickupId,
-      deliveryId: context.deliveryId,
+      filenameStrategy: context.settings.filenameStrategy,
+      timestampWriteMode: context.settings.timestampWriteMode,
+      rewriteExif: context.settings.rewriteExif,
+      injectFromEditedTime: context.settings.injectFromEditedTime,
       presetId: context.settings.presetId,
-      metadataPolicyMode: context.settings.metadataPolicyMode,
+      ordering,
     };
 
     this.workerPool

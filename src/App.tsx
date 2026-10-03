@@ -15,28 +15,34 @@ import appReducer, { initialState } from './state/appReducer';
 import type { JobItem } from './state/jobTypes';
 import { selectGridItems } from './state/selectors';
 import {
-  DELIVERY_CATALOG,
-  DeliveryIds,
-  getDelivery,
-} from './domain/deliveryCatalog';
-import { getPickup } from './domain/pickupCatalog';
-import {
   listPresets,
   getPreset,
   type PresetId,
   type OutputFormat,
-  type FilenameSource,
+  type FilenameStrategy,
+  type TimestampWriteMode,
+  type InputBehavior,
 } from './domain/presets';
 import QueueManager from './core/execution/queueManager';
 
 type PresetOptionView = {
   id: PresetId;
   title: string;
-  description: string;
-  guarantee: 'guaranteed' | 'best-effort' | 'unverified';
+  story: string;
+  usage: string[];
   category: 'stable' | 'experimental';
+  recommended?: boolean;
   disabled: boolean;
   disabledReason?: string;
+  environmentHints?: string[];
+  inputBehavior: InputBehavior;
+};
+
+const DEFAULT_INPUT_BEHAVIOR: InputBehavior = {
+  label: 'Add images',
+  note: 'Select or drop images to start.',
+  accept: 'image/*',
+  multiple: true,
 };
 
 function createId(): string {
@@ -94,14 +100,7 @@ export default function App() {
 
   useEffect(() => {
     queueManagerRef.current?.sync();
-  }, [
-    state.items,
-    state.settings,
-    state.settingsRev,
-    state.runId,
-    state.pickupId,
-    state.deliveryId,
-  ]);
+  }, [state.items, state.settings, state.settingsRev, state.runId]);
 
   useEffect(() => {
     const nextMap = new Map<string, string>();
@@ -154,7 +153,6 @@ export default function App() {
     () =>
       listPresets()
         .map((preset) => {
-          const delivery = DELIVERY_CATALOG[preset.deliveryId];
           const issues: string[] = [];
           if (preset.requiresHttps && !environmentInfo.isHttps) {
             issues.push('HTTPS connection required');
@@ -168,18 +166,24 @@ export default function App() {
           return {
             id: preset.id,
             title: preset.title,
-            description: preset.description,
-            guarantee: delivery?.guarantee ?? 'guaranteed',
+            story: preset.story,
+            usage: preset.usage,
             category: preset.category,
+            recommended: preset.recommended,
             disabled: issues.length > 0,
             disabledReason: issues.length > 0 ? issues.join(' / ') : undefined,
+            environmentHints: preset.environmentHints,
+            inputBehavior: preset.inputBehavior,
           };
         })
         .sort((a, b) => {
-          if (a.disabled === b.disabled) {
+          if (a.disabled !== b.disabled) {
+            return a.disabled ? 1 : -1;
+          }
+          if ((a.recommended ?? false) === (b.recommended ?? false)) {
             return 0;
           }
-          return a.disabled ? 1 : -1;
+          return a.recommended ? -1 : 1;
         }),
     [environmentInfo],
   );
@@ -356,23 +360,32 @@ export default function App() {
     (nextSettings: {
       jpegQuality: number;
       outputFormat: OutputFormat;
-      filenameSource: FilenameSource;
+      filenameStrategy: FilenameStrategy;
+      timestampWriteMode: TimestampWriteMode;
+      rewriteExif: boolean;
+      injectFromEditedTime: boolean;
     }) => {
       dispatch({ type: 'SET_SETTINGS', settings: nextSettings });
       const qualityPct = Math.round(nextSettings.jpegQuality * 100);
       const formatLabel = nextSettings.outputFormat.toUpperCase();
-      const filenameLabel = (() => {
-        switch (nextSettings.filenameSource) {
-          case 'exif':
-            return 'Exif';
-          case 'file-last-modified':
-            return 'File time';
+      const filenameLabel =
+        nextSettings.filenameStrategy === 'timestamped'
+          ? 'Timestamped names'
+          : 'Keep names';
+      const timestampLabel = (() => {
+        switch (nextSettings.timestampWriteMode) {
+          case 'from-file-modified':
+            return 'Edited time';
+          case 'off':
+            return 'Timestamp off';
+          case 'copy-exif':
           default:
-            return 'Original';
+            return 'Exif time';
         }
       })();
+      const exifLabel = nextSettings.rewriteExif ? 'Exif ON' : 'Exif OFF';
       showToast(
-        `Settings applied (${qualityPct}% · ${formatLabel} · ${filenameLabel})`,
+        `Settings applied (${qualityPct}% · ${formatLabel} · ${filenameLabel} · ${timestampLabel} · ${exifLabel})`,
       );
     },
     [dispatch, showToast],
@@ -431,11 +444,7 @@ export default function App() {
       }
       try {
         await nav.share(shareData);
-        if (stateRef.current.deliveryId === DeliveryIds.Files) {
-          showToast('Select “Save to Files” to keep the order.');
-        } else {
-          showToast('Shared.');
-        }
+        showToast('Shared.');
       } catch (error) {
         if ((error as Error)?.name === 'AbortError') {
           return;
@@ -475,8 +484,17 @@ export default function App() {
       percentComplete,
     };
   }, [state.items]);
-  const selectedPickup = getPickup(state.pickupId);
-  const selectedDelivery = getDelivery(state.deliveryId);
+  const activePreset = presetOptions.find(
+    (option) => option.id === state.settings.presetId,
+  );
+  const activePresetInfo = activePreset
+    ? {
+        story: activePreset.story,
+        usage: activePreset.usage,
+        environmentHints: activePreset.environmentHints,
+      }
+    : undefined;
+  const pickerBehavior = activePreset?.inputBehavior ?? DEFAULT_INPUT_BEHAVIOR;
   const scrollToId = state.lastAddedIds[state.lastAddedIds.length - 1];
 
   return (
@@ -485,7 +503,7 @@ export default function App() {
         <FilePicker
           inputRef={inputRef}
           onFilesSelected={onChangeFiles}
-          pickupId={state.pickupId}
+          behavior={pickerBehavior}
         />
 
         <button type="button" onClick={onReset}>
@@ -496,27 +514,14 @@ export default function App() {
       <SettingsPanel
         currentJpegQuality={state.settings.jpegQuality}
         currentOutputFormat={state.settings.outputFormat}
-        currentFilenameSource={state.settings.filenameSource}
+        currentFilenameStrategy={state.settings.filenameStrategy}
+        currentTimestampMode={state.settings.timestampWriteMode}
+        rewriteExif={state.settings.rewriteExif}
+        injectFromEditedTime={state.settings.injectFromEditedTime}
         presetId={state.settings.presetId}
         presetOptions={presetOptions}
+        activePreset={activePresetInfo}
         onChangePreset={onChangePreset}
-        pickupInfo={
-          selectedPickup
-            ? {
-                title: selectedPickup.title,
-                description: selectedPickup.description,
-              }
-            : undefined
-        }
-        deliveryInfo={
-          selectedDelivery
-            ? {
-                title: selectedDelivery.title,
-                description: selectedDelivery.description,
-                guarantee: selectedDelivery.guarantee,
-              }
-            : undefined
-        }
         onApply={onApplySettings}
       />
 

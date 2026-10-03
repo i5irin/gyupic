@@ -5,11 +5,6 @@ import type {
   JobItem,
   JobErrorInfo,
 } from './jobTypes';
-import {
-  DEFAULT_DELIVERY_ID,
-  type DeliveryId,
-} from '../domain/deliveryCatalog';
-import { DEFAULT_PICKUP_ID, type PickupId } from '../domain/pickupCatalog';
 import { DEFAULT_PRESET_ID, type PresetId, getPreset } from '../domain/presets';
 
 export type AppAction =
@@ -28,9 +23,7 @@ export type AppAction =
   | { type: 'END_ITEM'; id: string }
   | { type: 'CLEAR_SESSION' }
   | { type: 'SET_SETTINGS'; settings: Partial<ConvertSettings> }
-  | { type: 'SET_PRESET'; presetId: PresetId }
-  | { type: 'SET_DELIVERY'; deliveryId: DeliveryId }
-  | { type: 'SET_PICKUP'; pickupId: PickupId };
+  | { type: 'SET_PRESET'; presetId: PresetId };
 
 function ensurePreset(id: PresetId | undefined) {
   return getPreset(id ?? DEFAULT_PRESET_ID) ?? getPreset(DEFAULT_PRESET_ID)!;
@@ -38,22 +31,29 @@ function ensurePreset(id: PresetId | undefined) {
 
 const defaultPreset = ensurePreset(DEFAULT_PRESET_ID);
 
+function buildSettingsFromPreset(
+  preset: ReturnType<typeof ensurePreset>,
+): ConvertSettings {
+  const defaults = preset.defaultSettings;
+  return {
+    presetId: preset.id,
+    jpegQuality: defaults.jpegQuality,
+    outputFormat: defaults.outputFormat,
+    filenameStrategy: defaults.filenameStrategy,
+    timestampWriteMode: defaults.timestampWriteMode,
+    rewriteExif: defaults.rewriteExif,
+    injectFromEditedTime: defaults.injectFromEditedTime,
+  };
+}
+
 export const initialState: AppState = {
   items: [],
   runId: 1,
-  settings: {
-    jpegQuality: defaultPreset.defaultJpegQuality,
-    presetId: defaultPreset.id,
-    metadataPolicyMode: defaultPreset.metadataPolicyMode,
-    outputFormat: defaultPreset.defaultOutputFormat,
-    filenameSource: defaultPreset.defaultFilenameSource,
-  },
+  settings: buildSettingsFromPreset(defaultPreset),
   settingsRev: 1,
   activeItemIds: [],
   lastAddedIds: [],
   presetId: defaultPreset.id,
-  pickupId: defaultPreset.pickupId ?? DEFAULT_PICKUP_ID,
-  deliveryId: defaultPreset.deliveryId ?? DEFAULT_DELIVERY_ID,
 };
 
 function updateItem(
@@ -79,12 +79,12 @@ export default function appReducer(
     }
 
     case 'START_ITEM': {
+      const preset = ensurePreset(state.settings.presetId);
       const snapshot: JobCaptureSnapshot = {
         runId: state.runId,
         settingsRev: state.settingsRev,
         presetId: state.settings.presetId,
-        pickupId: state.pickupId,
-        deliveryId: state.deliveryId,
+        ordering: preset.ordering,
         startedAt: Date.now(),
       };
       return {
@@ -207,18 +207,9 @@ export default function appReducer(
       const preset = ensurePreset(action.presetId);
       return {
         ...state,
-        settings: {
-          ...state.settings,
-          jpegQuality: preset.defaultJpegQuality,
-          presetId: preset.id,
-          metadataPolicyMode: preset.metadataPolicyMode,
-          outputFormat: preset.defaultOutputFormat,
-          filenameSource: preset.defaultFilenameSource,
-        },
+        settings: buildSettingsFromPreset(preset),
         settingsRev: state.settingsRev + 1,
         presetId: preset.id,
-        pickupId: preset.pickupId,
-        deliveryId: preset.deliveryId,
       };
     }
 
@@ -230,22 +221,6 @@ export default function appReducer(
         settings: state.settings,
         settingsRev: state.settingsRev,
         presetId: state.presetId,
-        pickupId: state.pickupId,
-        deliveryId: state.deliveryId,
-      };
-    }
-
-    case 'SET_DELIVERY': {
-      return {
-        ...state,
-        deliveryId: action.deliveryId,
-      };
-    }
-
-    case 'SET_PICKUP': {
-      return {
-        ...state,
-        pickupId: action.pickupId,
       };
     }
 
